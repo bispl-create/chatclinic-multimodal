@@ -3,6 +3,8 @@
 !.env.example
 .cache/
 .next/
+.next.bak*/
+.next.bak.*
 .next-dev.log
 .uvicorn.log
 node_modules/
@@ -16,6 +18,7 @@ __pycache__/
 *.temp
 *.swp
 *.swo
+*.tsbuildinfo
 .DS_Store
 snpEff_genes.txt
 snpEff_summary.html
