@@ -70,6 +70,63 @@ Later tools should include:
 - Chat should refer to tool outputs and Studio summaries as the trusted state.
 - If a tool fails, preserve the prior direct implementation as fallback until migration is complete.
 
+## Chat policy
+
+The chat layer should separate general conversation from grounded Studio interpretation.
+
+### Default chat mode
+
+- If the user does **not** include an explicit grounding trigger, answer as a normal GPT assistant.
+- In default mode, general knowledge questions should be answered from general knowledge even when a genomics dataset is loaded.
+- Do not automatically reinterpret general questions as requests for Studio card summaries just because a keyword overlaps with a card name or tool name.
+- Examples:
+  - `ROH가 뭐야?` -> answer as a general definition.
+  - `BTS가 누구야?` -> answer as a general knowledge question.
+  - `candidate variant가 뭔지 설명해줘` -> answer as a general genomics concept unless grounding is explicitly requested.
+
+### Grounded Studio mode
+
+- If the user includes one of the following triggers, answer from the active Studio state and current analysis artifacts:
+  - `$studio`
+  - `$current analysis`
+  - `$current card`
+  - `$grounded`
+- In grounded mode, prefer current card data, tool outputs, and current analysis artifacts over generic explanation.
+- In grounded mode, make it explicit that the answer is based on the currently loaded Studio state.
+- Examples:
+  - `$studio ROH 결과 설명해줘`
+  - `$current analysis candidate card를 해석해줘`
+
+### Tool execution policy
+
+- A tool should run only when the user explicitly requests execution or when the workflow stage deterministically requires it.
+- Tool recommendation policy belongs in skill; actual tool invocation belongs in backend/runtime.
+- Do not execute a tool just because a user asked a conceptual question about the tool domain.
+
+## Source-specific follow-up policy
+
+### VCF workflows
+
+- After VCF analysis, prefer follow-up suggestions such as candidate review, ClinVar review, VEP consequence review, ROH interpretation, local annotation enrichment, and liftover when relevant.
+- Use grounded interpretation only when the user explicitly invokes Studio grounding.
+
+### Raw sequencing workflows
+
+- After raw sequencing intake, prefer follow-up suggestions such as FastQC review, samtools review, alignment QC, and file integrity checks.
+- General sequencing questions without grounding triggers should still be answered as normal GPT responses.
+
+### Summary statistics workflows
+
+- After summary statistics review, prefer follow-up suggestions such as Manhattan plot, QQ plot, PRS preparation, harmonization, and post-GWAS next steps.
+- Do not automatically generate follow-up plots unless the workflow explicitly requires it or the user explicitly asks for them.
+- General statistical or genetics questions without grounding triggers should be answered as normal GPT responses.
+
+## Interpretation policy
+
+- Skill should define *how to interpret* candidate variants, ROH regions, ClinVar summaries, consequence summaries, and summary-statistics review cards.
+- Backend should only provide the relevant current artifacts and source type to the model/runtime.
+- Keep the backend responsible for trigger detection, source-type detection, state assembly, tool execution, and result persistence.
+
 ## Output expectations
 
 The orchestrator should ensure that:

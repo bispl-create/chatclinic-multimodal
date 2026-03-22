@@ -93,6 +93,33 @@ def _has_studio_trigger(question: str) -> bool:
     return any(token in lowered for token in ("$studio", "$current analysis", "$current card", "$grounded"))
 
 
+def _strip_studio_triggers(question: str) -> str:
+    cleaned = question
+    for token in ("$studio", "$current analysis", "$current card", "$grounded"):
+        cleaned = re.sub(re.escape(token), " ", cleaned, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _needs_grounded_clarification(question: str) -> bool:
+    if not _has_studio_trigger(question):
+        return False
+    stripped = _strip_studio_triggers(question)
+    if not stripped:
+        return True
+    tokens = stripped.split()
+    return len(tokens) < 2 and len(stripped) < 16
+
+
+def _grounded_clarification_text() -> str:
+    return (
+        "Grounded mode is on.\n\n"
+        "- Tell me which Studio result you want me to use.\n"
+        "- Example: `$studio candidate card 설명해줘`\n"
+        "- Example: `$studio ROH 결과를 요약해줘`\n"
+        "- Example: `$studio summary statistics review를 정리해줘`"
+    )
+
+
 def _compact_analysis_context(payload: AnalysisChatRequest) -> dict[str, object]:
     analysis = payload.analysis
     context = {
@@ -192,216 +219,23 @@ def _compact_analysis_context(payload: AnalysisChatRequest) -> dict[str, object]
         context["studio_context"] = _flatten_studio_context(payload.studio_context)
     return context
 
-
-def _studio_guided_answer(payload: AnalysisChatRequest) -> AnalysisChatResponse | None:
-    if not _has_studio_trigger(payload.question):
-        return None
-    studio = payload.studio_context or {}
-    if not studio:
-        return None
-
-    question = payload.question.lower()
-    citations = [item.id for item in payload.analysis.references[:3]]
-
-    if "initial grounded summary" in question or "studio-grounded summary" in question:
-        backend_summary = (payload.analysis.draft_answer or "").strip()
-        qc = studio.get("qc_summary") or {}
-        coverage = studio.get("clinical_coverage") or []
-        symbolic = studio.get("symbolic_alt_review") or {}
-        roh = studio.get("roh_review") or {}
-        candidates = studio.get("candidate_variants") or []
-        clinvar = studio.get("clinvar_review") or []
-        consequence = studio.get("vep_consequence") or []
-
-        coverage_lines = [f"- {item.get('label')}: {item.get('detail')}" for item in coverage[:4]]
-        candidate_lines = [
-            f"- {item.get('gene') or 'Unknown'} {item.get('locus')} | score {item.get('score')} | consequence={item.get('consequence')} | ClinVar={item.get('clinical_significance')} | in ROH={item.get('in_roh')}"
-            for item in candidates[:3]
-        ]
-        roh_lines = [
-            f"- {item.get('contig')}:{item.get('start_1based')}-{item.get('end_1based')} | {(item.get('length_bp') or 0) / 1_000_000:.2f} Mb | markers {item.get('marker_count')} | quality {item.get('quality')}"
-            for item in (roh.get("segments") or [])[:3]
-        ]
-        clinvar_lines = [f"- {item.get('label')}: {item.get('count')}" for item in clinvar[:4]]
-        consequence_lines = [f"- {item.get('label')}: {item.get('count')}" for item in consequence[:4]]
-        answer = (
-            f"This VCF contains {payload.analysis.facts.record_count} records across {len(payload.analysis.facts.contigs)} contig(s) "
-            f"and appears to align to {payload.analysis.facts.genome_build_guess or 'an unknown genome build'}. "
-            "The summary below reflects both the backend draft summary and the current Studio-derived review state.\n\n"
-            "## Backend grounded summary\n"
-            f"{backend_summary if backend_summary else '- No backend draft summary is available.'}\n\n"
-            "## QC and file status\n"
-            f"- PASS rate: {((qc.get('pass_rate') or 0) * 100):.1f}%\n"
-            f"- Ti/Tv ratio: {qc.get('ti_tv') if qc.get('ti_tv') is not None else 'n/a'}\n"
-            f"- Missing genotype rate: {((qc.get('missing_gt_rate') or 0) * 100):.1f}%\n"
-            f"- Het/HomAlt ratio: {qc.get('het_hom_alt_ratio') if qc.get('het_hom_alt_ratio') is not None else 'n/a'}\n\n"
-            "## Annotation coverage\n"
-            f"{chr(10).join(coverage_lines) if coverage_lines else '- Coverage detail is not available.'}\n\n"
-            "## Functional and clinical review\n"
-            f"{chr(10).join(consequence_lines) if consequence_lines else '- Consequence summary is not available.'}\n"
-            f"{chr(10).join(clinvar_lines) if clinvar_lines else '- ClinVar distribution is not available.'}\n\n"
-            "## Candidate and recessive signals\n"
-            f"{chr(10).join(candidate_lines) if candidate_lines else '- No ranked candidate variants are available yet.'}\n"
-            f"{chr(10).join(roh_lines) if roh_lines else '- No ROH segments are currently available.'}\n\n"
-            "## Special record handling\n"
-            f"- Symbolic ALT records separated for review: {symbolic.get('count', 0)}\n\n"
-            f"Grounding references: {', '.join(citations) if citations else 'foundational references'}."
-        )
-        return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-    if "roh" in question or "recessive" in question or "열성" in payload.question or "동형접합" in payload.question:
-        roh = studio.get("roh_review") or {}
-        segments = roh.get("segments") or []
-        shortlist = roh.get("recessive_shortlist") or []
-        if _is_korean(payload.question):
-            segment_lines = [
-                f"- {item.get('contig')}:{item.get('start_1based')}-{item.get('end_1based')} | {item.get('length_bp')} bp | markers {item.get('marker_count')} | quality {item.get('quality')}"
-                for item in segments[:5]
-            ]
-            shortlist_lines = [
-                f"- {item.get('gene') or 'Unknown'} {item.get('locus')} | score {item.get('score')} | genotype {item.get('genotype')} | in ROH={item.get('in_roh')} | consequence={item.get('consequence')} | gnomAD={item.get('gnomad_af')}"
-                for item in shortlist[:5]
-            ]
-            answer = (
-                "ROH / Recessive Review 결과는 현재 Studio 계산값 기준으로 보면 다음과 같습니다.\n\n"
-                "1. ROH 구간\n"
-                f"{chr(10).join(segment_lines) if segment_lines else '- 검출된 ROH 구간이 없습니다.'}\n\n"
-                "2. 열성 후보 shortlist\n"
-                f"{chr(10).join(shortlist_lines) if shortlist_lines else '- 현재 shortlist 후보가 없습니다.'}\n\n"
-                "3. 해석\n"
-                "- 이 화면의 열성 후보 점수는 `1/1`, ROH overlap, consequence, gnomAD, ClinVar를 함께 반영한 triage 점수입니다.\n"
-                "- 최종 임상 판단은 아니며, segregation, phenotype, 전체 VCF 범위의 annotation을 추가로 봐야 합니다."
-            )
-        else:
-            answer = "ROH / recessive review is available in the Studio context, but the current UI is configured primarily for Korean responses."
-        return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-    if "clinvar" in question:
-        review = studio.get("clinvar_review") or []
-        lines = [f"- {item.get('label')}: {item.get('count')}" for item in review[:8]]
-        answer = (
-            "ClinVar Review 카드 설명입니다.\n\n"
-            "1. 분포\n"
-            f"{chr(10).join(lines) if lines else '- ClinVar 분포 데이터가 없습니다.'}\n\n"
-            "2. 의미\n"
-            "- 이 카드는 현재 annotation subset에서 clinical significance가 어떻게 분포하는지 보여줍니다.\n"
-            "- `benign`, `pathogenic`, `VUS`, `unreviewed` 같은 값은 ClinVar 또는 관련 임상 주석 필드에서 온 것입니다."
-        )
-        return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-    if "coverage" in question or "coverage" in str(studio.get("active_view", "")).lower() or "coverage" in payload.question.lower() or "주석" in payload.question and "coverage" in question:
-        coverage = studio.get("clinical_coverage") or []
-        lines = [f"- {item.get('label')}: {item.get('detail')}" for item in coverage[:6]]
-        answer = (
-            "Clinical Coverage 카드 설명입니다.\n\n"
-            "1. 현재 coverage\n"
-            f"{chr(10).join(lines) if lines else '- Coverage 요약이 없습니다.'}\n\n"
-            "2. 의미\n"
-            "- 이 카드는 현재 annotation 결과가 ClinVar, gnomAD, gene mapping, HGVS, protein change 기준으로 얼마나 채워졌는지 보여줍니다.\n"
-            "- 값이 낮을수록 추가 annotation이 더 필요합니다."
-        )
-        return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-    if "candidate" in question or "후보" in payload.question:
-        candidates = studio.get("candidate_variants") or []
-        lines = [
-            f"- {item.get('gene') or 'Unknown'} {item.get('locus')} | score {item.get('score')} | {item.get('consequence')} | ClinVar={item.get('clinical_significance')} | in ROH={item.get('in_roh')}"
-            for item in candidates[:6]
-        ]
-        answer = (
-            "Candidate Variants 카드 설명입니다.\n\n"
-            "1. 상위 후보\n"
-            f"{chr(10).join(lines) if lines else '- 현재 후보 리스트가 없습니다.'}\n\n"
-            "2. 의미\n"
-            "- 점수는 consequence, ClinVar, gnomAD, genotype, 그리고 ROH overlap 신호를 함께 반영한 triage용 점수입니다.\n"
-            "- 높은 점수일수록 먼저 검토할 가치가 크지만, 임상 확정 점수는 아닙니다."
-        )
-        return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-    if "vep" in question or "consequence" in question or "효과" in payload.question:
-        consequence = studio.get("vep_consequence") or []
-        lines = [f"- {item.get('label')}: {item.get('count')}" for item in consequence[:8]]
-        answer = (
-            "VEP Consequence 카드 설명입니다.\n\n"
-            "1. consequence 분포\n"
-            f"{chr(10).join(lines) if lines else '- consequence 요약이 없습니다.'}\n\n"
-            "2. 의미\n"
-            "- 이 카드는 VEP 기반 consequence가 어떤 유형으로 많이 분포하는지 보여줍니다.\n"
-            "- 예를 들어 missense, splice, synonymous 비율을 보고 어떤 변이를 우선 볼지 정할 수 있습니다."
-        )
-        return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-    if "ldblockshow" in question or "ld block" in question or "ld heatmap" in question:
-        result = payload.analysis.ldblockshow_result
-        if result is None:
-            answer = (
-                "현재 분석 컨텍스트에는 LDBlockShow 결과 artifact가 포함되어 있지 않습니다.\n\n"
-                "- 즉, 이번 분석에서 LD heatmap이 이미 생성되었다고 말할 수는 없습니다.\n"
-                "- LDBlockShow는 메인 분석의 기본 자동 단계가 아니라 region 기반 on-demand 도구입니다.\n"
-                "- 원하시면 region을 지정해서 별도로 실행해야 합니다. 예: `Run LDBlockShow on chr11:24100000:24200000`"
-            )
-            return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-        artifact = result.svg_path or result.png_path or result.pdf_path or "not available"
-        warning_lines = [f"- {item}" for item in result.warnings[:6]]
-        answer = (
-            "LD Block Review 결과입니다.\n\n"
-            "1. 현재 실행 상태\n"
-            f"- region: {result.region}\n"
-            f"- primary artifact: {artifact}\n\n"
-            "2. warnings\n"
-            f"{chr(10).join(warning_lines) if warning_lines else '- no warnings'}\n\n"
-            "3. 해석\n"
-            "- 이 결과는 지정한 locus에 대한 LD heatmap 시각화입니다.\n"
-            "- block file, site file, triangle matrix와 함께 보조적으로 해석할 수 있습니다."
-        )
-        return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=False)
-
-    return None
-
-
 def _fallback_answer(payload: AnalysisChatRequest) -> AnalysisChatResponse:
-    studio_answer = _studio_guided_answer(payload)
-    if studio_answer is not None:
-        return studio_answer
-    analysis = payload.analysis
-    top_annotations = analysis.annotations[:3]
-    citations = [item.id for item in analysis.references[:3]]
-    if _is_korean(payload.question):
-        annotation_lines = []
-        for item in top_annotations:
-            annotation_lines.append(
-                f"- {item.gene} {item.consequence} ({item.rsid}, ClinVar={item.clinical_significance}, condition={item.clinvar_conditions})"
-            )
+    if _has_studio_trigger(payload.question):
         answer = (
-            f"현재 분석 파일은 {analysis.facts.file_name}이고, 총 {analysis.facts.record_count}개 변이가 있습니다. "
-            f"유전체 빌드는 {analysis.facts.genome_build_guess or '미상'}로 추정됩니다. "
-            f"대표 annotation은 다음과 같습니다.\n"
-            f"{chr(10).join(annotation_lines) if annotation_lines else '- 대표 annotation이 아직 없습니다.'}\n"
-            f"추천 다음 단계는 {', '.join(item.title for item in analysis.recommendations[:3]) or '추가 annotation 확인'} 입니다. "
-            f"근거 문헌은 {', '.join(citations) if citations else '기본 reference'}를 참고하세요."
+            "I could not complete the grounded Studio response right now.\n\n"
+            "- The request was recognized as `$studio` grounded chat.\n"
+            "- Please retry the question, or ask again after the backend model connection is restored."
         )
     else:
-        annotation_lines = []
-        for item in top_annotations:
-            annotation_lines.append(
-                f"- {item.gene} {item.consequence} ({item.rsid}, ClinVar={item.clinical_significance}, condition={item.clinvar_conditions})"
-            )
         answer = (
-            f"This analysis contains {analysis.facts.record_count} variants from {analysis.facts.file_name} "
-            f"and appears to use {analysis.facts.genome_build_guess or 'an unknown genome build'}. "
-            f"Representative annotations include:\n"
-            f"{chr(10).join(annotation_lines) if annotation_lines else '- No representative annotations are available yet.'}\n"
-            f"Recommended next steps include {', '.join(item.title for item in analysis.recommendations[:3]) or 'additional annotation review'}. "
-            f"See {', '.join(citations) if citations else 'the foundational references'} for grounding."
+            "I could not complete the general GPT response right now.\n\n"
+            "- Please retry the question.\n"
+            "- If you want the answer grounded in the current Studio state, add `$studio` to the message."
         )
-    return AnalysisChatResponse(answer=answer, citations=citations, used_fallback=True)
+    return AnalysisChatResponse(answer=answer, citations=[], used_fallback=True)
 
 
 def _call_openai(payload: AnalysisChatRequest) -> AnalysisChatResponse:
-    studio_answer = _studio_guided_answer(payload)
-    if studio_answer is not None:
-        return studio_answer
     api_key = os.getenv("OPENAI_API_KEY")
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     if not api_key:
@@ -706,6 +540,13 @@ def _handle_ldblockshow_request(payload: AnalysisChatRequest) -> AnalysisChatRes
 
 
 def answer_analysis_chat(payload: AnalysisChatRequest) -> AnalysisChatResponse:
+    if _needs_grounded_clarification(payload.question):
+        return AnalysisChatResponse(
+            answer=_grounded_clarification_text(),
+            citations=[],
+            used_fallback=False,
+        )
+
     direct_tool = _match_direct_tool_request(payload.question)
     lowered_question = payload.question.lower()
 
@@ -783,30 +624,22 @@ def answer_analysis_chat(payload: AnalysisChatRequest) -> AnalysisChatResponse:
 
 
 def _fallback_raw_qc_answer(payload: RawQcChatRequest) -> RawQcChatResponse:
-    analysis = payload.analysis
-    facts = analysis.facts
-    pass_count = sum(1 for item in analysis.modules if item.status.upper() == "PASS")
-    warn_count = sum(1 for item in analysis.modules if item.status.upper() == "WARN")
-    fail_count = sum(1 for item in analysis.modules if item.status.upper() == "FAIL")
-    module_lines = [
-        f"- {item.name}: {item.status}{f' ({item.detail})' if item.detail else ''}"
-        for item in analysis.modules[:8]
-    ]
     answer = (
-        f"FastQC reviewed `{facts.file_name}` as a {facts.file_kind} input.\n\n"
-        f"- Total sequences/records: {facts.total_sequences if facts.total_sequences is not None else 'unknown'}\n"
-        f"- Sequence length: {facts.sequence_length or 'unknown'}\n"
-        f"- %GC: {facts.gc_content if facts.gc_content is not None else 'unknown'}\n"
-        f"- Encoding: {facts.encoding or 'unknown'}\n"
-        f"- Module summary: {pass_count} PASS, {warn_count} WARN, {fail_count} FAIL\n\n"
-        "Top module results:\n"
-        f"{chr(10).join(module_lines) if module_lines else '- No module details are available.'}\n\n"
-        "Review failed or warning modules before downstream alignment or variant calling."
+        "I could not complete the raw-QC chat response right now.\n\n"
+        "- Please retry the question.\n"
+        "- If you want the answer grounded in the current Studio state, add `$studio` to the message."
     )
     return RawQcChatResponse(answer=answer, citations=[], used_fallback=True)
 
 
 def answer_raw_qc_chat(payload: RawQcChatRequest) -> RawQcChatResponse:
+    if _needs_grounded_clarification(payload.question):
+        return RawQcChatResponse(
+            answer=_grounded_clarification_text(),
+            citations=[],
+            used_fallback=False,
+        )
+
     lowered = payload.question.lower()
     if "samtools" in lowered:
         alignment_kind = (payload.analysis.facts.file_kind or "").upper()
@@ -937,22 +770,22 @@ def answer_raw_qc_chat(payload: RawQcChatRequest) -> RawQcChatResponse:
 
 
 def _fallback_summary_stats_answer(payload: SummaryStatsChatRequest) -> SummaryStatsChatResponse:
-    analysis = payload.analysis
-    mapped = analysis.mapped_fields.model_dump(exclude_none=True)
-    mapped_lines = [f"- {key}: {value}" for key, value in mapped.items()]
     answer = (
-        f"Summary statistics file `{analysis.file_name}` was loaded.\n\n"
-        f"- Rows detected: {analysis.row_count}\n"
-        f"- Genome build: {analysis.genome_build}\n"
-        f"- Trait type: {analysis.trait_type}\n"
-        f"- Columns detected: {len(analysis.detected_columns)}\n"
-        f"- Auto-mapped fields: {len(mapped)}\n\n"
-        f"{chr(10).join(mapped_lines) if mapped_lines else '- No mapped fields are available yet.'}"
+        "I could not complete the summary-statistics chat response right now.\n\n"
+        "- Please retry the question.\n"
+        "- If you want the answer grounded in the current Studio state, add `$studio` to the message."
     )
     return SummaryStatsChatResponse(answer=answer, citations=[], used_fallback=True)
 
 
 def answer_summary_stats_chat(payload: SummaryStatsChatRequest) -> SummaryStatsChatResponse:
+    if _needs_grounded_clarification(payload.question):
+        return SummaryStatsChatResponse(
+            answer=_grounded_clarification_text(),
+            citations=[],
+            used_fallback=False,
+        )
+
     api_key = os.getenv("OPENAI_API_KEY")
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     if not api_key:

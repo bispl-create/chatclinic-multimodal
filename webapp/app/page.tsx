@@ -786,8 +786,6 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [selectedAnnotationIndex, setSelectedAnnotationIndex] = useState(0);
   const [annotationSearch, setAnnotationSearch] = useState("");
-  const [optionsAsked, setOptionsAsked] = useState(false);
-  const [preAnalysisPrompt, setPreAnalysisPrompt] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [isComposing, setIsComposing] = useState(false);
   const [analysisQa, setAnalysisQa] = useState<AnalysisQuestionTurn[]>([]);
@@ -951,20 +949,16 @@ export default function Page() {
     setSelectedAnnotationIndex(0);
     setAnnotationSearch("");
     initialSummaryRequestRef.current = null;
-    setOptionsAsked(true);
-    setPreAnalysisPrompt(null);
     setError(null);
     if (isRawQcFileName(file.name)) {
-      setOptionsAsked(false);
       setStatus("Running FastQC...");
       void handleStartRawQc(file);
     } else if (isSummaryStatsFileName(file.name) && !isVcfFileName(file.name)) {
-      setOptionsAsked(false);
       setStatus("Loading summary statistics...");
       void handleStartSummaryStats(file);
     } else {
-      setStatus("File attached");
-      void requestWorkflowStart(file.name);
+      setStatus("Preparing analysis...");
+      void handleStartAnalysis("representative", annotationLimit, file);
     }
     event.target.value = "";
   }
@@ -1046,8 +1040,13 @@ export default function Page() {
     }
   }
 
-  async function handleStartAnalysis(parsedScope?: "representative" | "all", parsedLimit?: string) {
-    if (!attachedFile) {
+  async function handleStartAnalysis(
+    parsedScope?: "representative" | "all",
+    parsedLimit?: string,
+    fileOverride?: File | null,
+  ) {
+    const inputFile = fileOverride ?? attachedFile;
+    if (!inputFile) {
       setError("먼저 + 버튼으로 VCF 파일을 첨부해 주세요.");
       return;
     }
@@ -1094,7 +1093,7 @@ export default function Page() {
 
     try {
       const formData = new FormData();
-      formData.append("file", attachedFile);
+      formData.append("file", inputFile);
       formData.append("annotation_scope", effectiveScope);
       if (effectiveScope === "all" && effectiveLimit.trim()) {
         formData.append("annotation_limit", effectiveLimit);
@@ -1116,7 +1115,6 @@ export default function Page() {
       setAnalysisQa([]);
       setActiveStudioView(null);
       setSelectedAnnotationIndex(0);
-      setOptionsAsked(false);
       setComposerText("");
       setStatus("Preparing grounded summary...");
     } catch (caught) {
@@ -1146,13 +1144,6 @@ export default function Page() {
       return;
     }
 
-    if (optionsAsked) {
-      addMessage({ role: "user", content: text });
-      setComposerText("");
-      await requestWorkflowReply(text);
-      return;
-    }
-
     if (analysis) {
       setComposerText("");
       await handleAskAnalysisQuestion(text);
@@ -1177,64 +1168,6 @@ export default function Page() {
       content: "먼저 VCF 또는 raw sequencing file을 첨부해 주세요.",
     });
     setComposerText("");
-  }
-
-  async function requestWorkflowStart(fileName: string) {
-    try {
-      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/workflow/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_name: fileName }),
-      });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      const payload = await response.json();
-      setPreAnalysisPrompt(payload.assistant_message);
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      setPreAnalysisPrompt(
-        `Workflow intake 호출에 실패했습니다: ${message}. 예: \`all로 200개\`, \`representative로 진행\`처럼 답해 주세요.`,
-      );
-    }
-  }
-
-  async function requestWorkflowReply(message: string) {
-    if (!attachedFile) {
-      return;
-    }
-    setStatus("Parsing scope and range...");
-    try {
-      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/workflow/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_name: attachedFile.name, message }),
-      });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      const payload = await response.json();
-      setStatus(payload.should_start_analysis ? "Preparing analysis..." : "Scope received");
-      addMessage({
-        role: "assistant",
-        content: `${payload.assistant_message} (workflow model: ${payload.model})`,
-        kind: "status",
-      });
-      if (payload.should_start_analysis) {
-        await handleStartAnalysis(
-          payload.parsed_scope,
-          payload.parsed_limit != null ? String(payload.parsed_limit) : annotationLimit,
-        );
-      }
-    } catch (caught) {
-      const msg = caught instanceof Error ? caught.message : String(caught);
-      addMessage({
-        role: "assistant",
-        content:
-          `GPT workflow option parsing에 실패했습니다: ${msg}. ` +
-          "예: `all로 200개`, `representative로 진행`처럼 다시 입력해 주세요.",
-      });
-    }
   }
 
   async function handleAskAnalysisQuestion(questionText?: string) {
@@ -1521,17 +1454,11 @@ export default function Page() {
     if (status === "Generating answer...") {
       return "ChatGenome is reading the current analysis and Studio results to prepare a grounded response.";
     }
-    if (status === "Parsing scope and range...") {
-      return "ChatGenome is interpreting your scope and range reply before launching the analysis.";
-    }
     if (status === "Preparing analysis...") {
-      return "The workflow reply was accepted. ChatGenome is now preparing the grounded VCF analysis run.";
+      return "The VCF is attached. ChatGenome is starting the default representative analysis run.";
     }
     if (status === "Preparing grounded summary...") {
       return "The VCF analysis is finished. ChatGenome is now composing the first grounded summary from the current Studio results.";
-    }
-    if (status === "Scope received") {
-      return "The scope and range were understood. If analysis does not start automatically, refine the instruction in chat.";
     }
     if (status === "Analyzing") {
       return "Reading the VCF, attaching deterministic annotation, and preparing grounded outputs.";
@@ -1541,12 +1468,6 @@ export default function Page() {
     }
     if (status === "Loading summary statistics...") {
       return "Reading the summary statistics file, detecting columns, and preparing a post-GWAS review surface.";
-    }
-    if (status === "File attached") {
-      return "The VCF is attached. Reply in chat with the analysis scope and range.";
-    }
-    if (status === "Awaiting scope and range") {
-      return "The file is attached. Reply in chat with scope/range, or leave it broad and representative mode will be used.";
     }
     if (status === "Answer ready") {
       return "The latest answer is ready in Chat and grounded against the current analysis context.";
@@ -1573,15 +1494,11 @@ export default function Page() {
   }, [latestStatusMessage, status]);
   const chatHeaderStatus =
     status === "Generating answer..." ||
-    status === "Parsing scope and range..." ||
     status === "Preparing analysis..." ||
     status === "Preparing grounded summary..." ||
     status === "Analyzing" ||
     status === "Running FastQC..." ||
     status === "Loading summary statistics..." ||
-    status === "File attached" ||
-    status === "Scope received" ||
-    status === "Awaiting scope and range" ||
     status === "Raw QC failed" ||
     status === "Summary stats failed" ||
     status === "Answer failed"
@@ -1594,14 +1511,6 @@ export default function Page() {
             : "Summary stats ready"
         : status;
   const chatTurns = [
-    ...(preAnalysisPrompt
-      ? [
-          {
-            role: "assistant" as const,
-            content: preAnalysisPrompt,
-          },
-        ]
-      : []),
     ...messages
       .filter((message) => message.role === "user")
       .map((message) => ({ role: message.role, content: message.content })),
@@ -1986,7 +1895,7 @@ export default function Page() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question:
-              "Provide an initial grounded summary of this VCF analysis. Combine the backend draft_answer with the current studio_context explicitly, including QC, clinical coverage, symbolic ALT review, ROH/recessive review, candidate variants, ClinVar review, and VEP consequence.",
+              "$studio Provide an initial grounded summary of this VCF analysis. Combine the backend draft_answer with the current studio_context explicitly, including QC, clinical coverage, symbolic ALT review, ROH/recessive review, candidate variants, ClinVar review, and VEP consequence.",
             analysis,
             history: [],
             studio_context: studioContext,
@@ -2182,9 +2091,7 @@ export default function Page() {
                 onCompositionEnd={() => setIsComposing(false)}
                 placeholder={
                   attachedFile
-                    ? optionsAsked
-                      ? "예: all로 200개, 비워두면 representative"
-                      : "Start typing a follow-up question..."
+                    ? "Start typing a follow-up question..."
                     : "Upload a VCF, raw sequencing file, or summary statistics file first"
                 }
                 onKeyDown={(event) => {
