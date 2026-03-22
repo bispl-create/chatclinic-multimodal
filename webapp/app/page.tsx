@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import IgvBrowser from "./components/IgvBrowser";
@@ -284,6 +284,49 @@ type RawQcResponse = {
   }>;
 };
 
+type SummaryStatsResponse = {
+  analysis_id: string;
+  source_stats_path?: string | null;
+  file_name: string;
+  genome_build: string;
+  trait_type: string;
+  delimiter: string;
+  detected_columns: string[];
+  mapped_fields: {
+    chrom?: string | null;
+    pos?: string | null;
+    rsid?: string | null;
+    effect_allele?: string | null;
+    other_allele?: string | null;
+    beta_or?: string | null;
+    standard_error?: string | null;
+    p_value?: string | null;
+    n?: string | null;
+    eaf?: string | null;
+  };
+  row_count: number;
+  preview_rows: Array<Record<string, string>>;
+  warnings: string[];
+  draft_answer: string;
+  used_tools?: string[];
+  tool_registry?: Array<{
+    name: string;
+    description: string;
+    task: string;
+    modality: string;
+    approval_required: boolean;
+    source: string;
+  }>;
+};
+
+type SummaryStatsRowsResponse = {
+  rows: Array<Record<string, string>>;
+  offset: number;
+  limit: number;
+  returned: number;
+  has_more: boolean;
+};
+
 type ChatMessage = {
   role: "assistant" | "user";
   content: string;
@@ -301,6 +344,7 @@ type StudioView =
   | "provenance"
   | "coverage"
   | "rawqc"
+  | "sumstats"
   | "samtools"
   | "snpeff"
   | "plink"
@@ -337,6 +381,25 @@ function isRawQcFileName(fileName: string) {
     lowered.endsWith(".fq.gz") ||
     lowered.endsWith(".bam") ||
     lowered.endsWith(".sam")
+  );
+}
+
+function isVcfFileName(fileName: string) {
+  const lowered = fileName.toLowerCase();
+  return lowered.endsWith(".vcf") || lowered.endsWith(".vcf.gz");
+}
+
+function isSummaryStatsFileName(fileName: string) {
+  const lowered = fileName.toLowerCase();
+  return (
+    lowered.endsWith(".tsv") ||
+    lowered.endsWith(".tsv.gz") ||
+    lowered.endsWith(".txt") ||
+    lowered.endsWith(".txt.gz") ||
+    lowered.endsWith(".csv") ||
+    lowered.endsWith(".csv.gz") ||
+    lowered.endsWith(".sumstats") ||
+    lowered.endsWith(".sumstats.gz")
   );
 }
 
@@ -701,11 +764,15 @@ export default function Page() {
     {
       role: "assistant",
       content:
-        "VCF를 올리면 variant interpretation workflow를 진행하고, FASTQ/BAM/SAM을 올리면 FastQC 기반 raw sequencing QC를 진행합니다.",
+        "VCF를 올리면 variant interpretation workflow를 진행하고, FASTQ/BAM/SAM을 올리면 FastQC 기반 raw sequencing QC를 진행합니다. Summary statistics를 올리면 post-GWAS review intake를 시작합니다.",
     },
   ]);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [rawQcAnalysis, setRawQcAnalysis] = useState<RawQcResponse | null>(null);
+  const [summaryStatsAnalysis, setSummaryStatsAnalysis] = useState<SummaryStatsResponse | null>(null);
+  const [summaryStatsGridRows, setSummaryStatsGridRows] = useState<Array<Record<string, string>>>([]);
+  const [summaryStatsHasMore, setSummaryStatsHasMore] = useState(false);
+  const [summaryStatsRowsLoading, setSummaryStatsRowsLoading] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [annotationScope, setAnnotationScope] = useState<"representative" | "all">("representative");
   const [annotationLimit, setAnnotationLimit] = useState("200");
@@ -733,12 +800,15 @@ export default function Page() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const studioCanvasRef = useRef<HTMLElement | null>(null);
   const chatStreamRef = useRef<HTMLDivElement | null>(null);
+  const summaryStatsGridRef = useRef<HTMLDivElement | null>(null);
   const initialSummaryRequestRef = useRef<string | null>(null);
   const activeToolRegistry =
     analysis?.tool_registry?.length
       ? analysis.tool_registry
       : rawQcAnalysis?.tool_registry?.length
         ? rawQcAnalysis.tool_registry
+        : summaryStatsAnalysis?.tool_registry?.length
+          ? summaryStatsAnalysis.tool_registry
         : toolRegistry;
   const plinkCommandPreview = useMemo(() => {
     const inputPath = analysis?.source_vcf_path || "<source.vcf.gz>";
@@ -765,6 +835,25 @@ export default function Page() {
     }
     setPlinkConfig((current) => ({ ...current, outputPrefix: `${analysis.analysis_id}-plink` }));
   }, [analysis]);
+
+  useEffect(() => {
+    if (!summaryStatsAnalysis) {
+      setSummaryStatsGridRows([]);
+      setSummaryStatsHasMore(false);
+      return;
+    }
+    setSummaryStatsGridRows(summaryStatsAnalysis.preview_rows);
+    setSummaryStatsHasMore(summaryStatsAnalysis.row_count > summaryStatsAnalysis.preview_rows.length);
+  }, [summaryStatsAnalysis]);
+
+  useEffect(() => {
+    if (activeStudioView !== "sumstats" || !summaryStatsHasMore || summaryStatsRowsLoading) {
+      return;
+    }
+    if (summaryStatsGridRows.length < 120) {
+      void loadMoreSummaryStatsRows();
+    }
+  }, [activeStudioView, summaryStatsGridRows.length, summaryStatsHasMore, summaryStatsRowsLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -845,6 +934,7 @@ export default function Page() {
     setAttachedFile(file);
     setAnalysis(null);
     setRawQcAnalysis(null);
+    setSummaryStatsAnalysis(null);
     setFollowUpAnswer(null);
     setInitialGroundedAnswer(null);
     setAnalysisQa([]);
@@ -859,6 +949,10 @@ export default function Page() {
       setOptionsAsked(false);
       setStatus("Running FastQC...");
       void handleStartRawQc(file);
+    } else if (isSummaryStatsFileName(file.name) && !isVcfFileName(file.name)) {
+      setOptionsAsked(false);
+      setStatus("Loading summary statistics...");
+      void handleStartSummaryStats(file);
     } else {
       setStatus("File attached");
       void requestWorkflowStart(file.name);
@@ -899,6 +993,46 @@ export default function Page() {
       addMessage({
         role: "assistant",
         content: `FastQC 실행 중 오류가 발생했습니다: ${message}`,
+      });
+    }
+  }
+
+  async function handleStartSummaryStats(file: File) {
+    setError(null);
+    addMessage({
+      role: "assistant",
+      content: "Summary statistics 파일을 읽고 컬럼과 기본 QC를 확인하고 있습니다.",
+      kind: "status",
+    });
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("genome_build", "unknown");
+      formData.append("trait_type", "unknown");
+
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/summary-stats/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload: SummaryStatsResponse = await response.json();
+      setSummaryStatsAnalysis(payload);
+      setAnalysis(null);
+      setRawQcAnalysis(null);
+      setActiveStudioView("sumstats");
+      setStatus("Summary stats ready");
+      setComposerText("");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setError(message);
+      setStatus("Summary stats failed");
+      addMessage({
+        role: "assistant",
+        content: `Summary statistics intake 중 오류가 발생했습니다: ${message}`,
       });
     }
   }
@@ -1019,6 +1153,16 @@ export default function Page() {
     if (rawQcAnalysis) {
       setComposerText("");
       await handleAskRawQcQuestion(text);
+      return;
+    }
+
+    if (summaryStatsAnalysis) {
+      addMessage({ role: "user", content: text });
+      addMessage({
+        role: "assistant",
+        content: "Summary statistics intake는 준비되었습니다. 먼저 Studio의 `Summary Stats Review` 카드에서 컬럼과 QC를 확인해 주세요.",
+      });
+      setComposerText("");
       return;
     }
 
@@ -1214,6 +1358,44 @@ export default function Page() {
     }
   }
 
+  async function loadMoreSummaryStatsRows() {
+    if (!summaryStatsAnalysis?.source_stats_path || summaryStatsRowsLoading || !summaryStatsHasMore) {
+      return;
+    }
+
+    setSummaryStatsRowsLoading(true);
+    try {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/summary-stats/rows`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_stats_path: summaryStatsAnalysis.source_stats_path,
+          offset: summaryStatsGridRows.length,
+          limit: 200,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload: SummaryStatsRowsResponse = await response.json();
+      setSummaryStatsGridRows((current) => [...current, ...payload.rows]);
+      setSummaryStatsHasMore(payload.has_more);
+    } catch (caught) {
+      const msg = caught instanceof Error ? caught.message : String(caught);
+      setError(msg);
+    } finally {
+      setSummaryStatsRowsLoading(false);
+    }
+  }
+
+  function handleSummaryStatsGridScroll(event: UIEvent<HTMLDivElement>) {
+    const target = event.currentTarget;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining < 160) {
+      void loadMoreSummaryStatsRows();
+    }
+  }
+
   async function handleAskRawQcQuestion(questionText?: string) {
     const text = questionText?.trim() ?? "";
     if (!text || !rawQcAnalysis) {
@@ -1287,9 +1469,11 @@ export default function Page() {
     ? formatSummaryWithCitations(initialGroundedAnswer ?? analysis.draft_answer, analysis.references)
     : rawQcAnalysis
       ? rawQcAnalysis.draft_answer
+      : summaryStatsAnalysis
+        ? summaryStatsAnalysis.draft_answer
       : null;
   const displayedAnswer = followUpAnswer ?? summaryText;
-  const hasInteractiveState = Boolean(attachedFile || analysis || messages.length > 1);
+  const hasInteractiveState = Boolean(attachedFile || analysis || rawQcAnalysis || summaryStatsAnalysis || messages.length > 1);
   const latestStatusMessage =
     [...messages].reverse().find((message) => message.kind === "status" || message.kind === "summary")?.content ?? "";
   const sourceStatusDetail = useMemo(() => {
@@ -1314,6 +1498,9 @@ export default function Page() {
     if (status === "Running FastQC...") {
       return "Running local FastQC on the uploaded raw sequencing file and collecting module-level QC results.";
     }
+    if (status === "Loading summary statistics...") {
+      return "Reading the summary statistics file, detecting columns, and preparing a post-GWAS review surface.";
+    }
     if (status === "File attached") {
       return "The VCF is attached. Reply in chat with the analysis scope and range.";
     }
@@ -1329,8 +1516,14 @@ export default function Page() {
     if (status === "Raw QC ready") {
       return "FastQC finished. You can inspect the module summary in Studio and ask follow-up questions in chat.";
     }
+    if (status === "Summary stats ready") {
+      return "Summary statistics intake finished. Review detected columns, mapping, and QC in Studio before post-GWAS analysis.";
+    }
     if (status === "Raw QC failed") {
       return "FastQC failed for the uploaded raw sequencing file. Check the error and runtime prerequisites such as Java.";
+    }
+    if (status === "Summary stats failed") {
+      return "Summary statistics intake failed. Check the file format, compression, and delimiter/header structure.";
     }
     if (status === "Answer failed") {
       return "The last chat response failed. Retry the question and ChatGenome will attempt the grounded explanation again.";
@@ -1344,16 +1537,20 @@ export default function Page() {
     status === "Preparing grounded summary..." ||
     status === "Analyzing" ||
     status === "Running FastQC..." ||
+    status === "Loading summary statistics..." ||
     status === "File attached" ||
     status === "Scope received" ||
     status === "Awaiting scope and range" ||
     status === "Raw QC failed" ||
+    status === "Summary stats failed" ||
     status === "Answer failed"
       ? status
-      : analysis || rawQcAnalysis
+      : analysis || rawQcAnalysis || summaryStatsAnalysis
         ? analysis
           ? "Analysis ready"
-          : "Raw QC ready"
+          : rawQcAnalysis
+            ? "Raw QC ready"
+            : "Summary stats ready"
         : status;
   const chatTurns = [
     ...(preAnalysisPrompt
@@ -1367,7 +1564,7 @@ export default function Page() {
     ...messages
       .filter((message) => message.role === "user")
       .map((message) => ({ role: message.role, content: message.content })),
-    ...(analysis || rawQcAnalysis
+    ...(analysis || rawQcAnalysis || summaryStatsAnalysis
       ? [
           {
             role: "assistant" as const,
@@ -1585,6 +1782,8 @@ export default function Page() {
           ? [{ id: "samtools" as StudioView, title: "Samtools Review", subtitle: "Alignment QC summary" }]
           : []),
       ]
+    : summaryStatsAnalysis
+      ? [{ id: "sumstats" as StudioView, title: "Summary Stats Review", subtitle: "Post-GWAS intake and column mapping" }]
     : [
         { id: "provenance", title: "Workflow Setup", subtitle: "Tools, scope, and run policy" },
         { id: "qc", title: "QC Summary", subtitle: "PASS, Ti/Tv, GT quality" },
@@ -1816,7 +2015,6 @@ export default function Page() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".vcf,.vcf.gz,.gz,.fastq,.fastq.gz,.fq,.fq.gz,.bam,.sam"
                     onChange={handleFileChange}
                     className="hiddenInput"
                   />
@@ -1825,13 +2023,19 @@ export default function Page() {
                       <article className="sourceItem sourceItemActive">
                         <div>
                           <strong>{attachedFile.name}</strong>
-                          <p>{isRawQcFileName(attachedFile.name) ? "Active raw sequencing source" : "Active VCF source"}</p>
+                          <p>
+                            {isRawQcFileName(attachedFile.name)
+                              ? "Active raw sequencing source"
+                              : isSummaryStatsFileName(attachedFile.name) && !isVcfFileName(attachedFile.name)
+                                ? "Active summary statistics source"
+                                : "Active VCF source"}
+                          </p>
                         </div>
                         <span className="sourceBadge">1</span>
                       </article>
                     ) : (
                       <div className="sourceEmpty">
-                        <p>Attach a VCF or a raw sequencing file such as FASTQ/BAM/SAM to start analysis.</p>
+                        <p>Attach a VCF, a raw sequencing file such as FASTQ/BAM/SAM, or a summary statistics file to start analysis.</p>
                       </div>
                     )}
                   </div>
@@ -1884,9 +2088,9 @@ export default function Page() {
 
                   <div className="toolUsageLog">
                     <span>Used tools</span>
-                    {(analysis?.used_tools?.length || rawQcAnalysis?.used_tools?.length) ? (
+                    {(analysis?.used_tools?.length || rawQcAnalysis?.used_tools?.length || summaryStatsAnalysis?.used_tools?.length) ? (
                       <ul className="toolUsageList">
-                        {(analysis?.used_tools ?? rawQcAnalysis?.used_tools ?? []).map((toolName, index) => (
+                        {(analysis?.used_tools ?? rawQcAnalysis?.used_tools ?? summaryStatsAnalysis?.used_tools ?? []).map((toolName, index) => (
                           <li key={`${toolName}-${index}`}>{toolName}</li>
                         ))}
                       </ul>
@@ -1923,7 +2127,7 @@ export default function Page() {
               ) : (
                 <div className="chatEmptyState">
                   <h3>Start with one genomics source</h3>
-                  <p>Upload a VCF or a raw sequencing file on the left, then continue the workflow in this chat.</p>
+                  <p>Upload a VCF, a raw sequencing file, or a summary statistics file on the left, then continue the workflow in this chat.</p>
                 </div>
               )}
             </div>
@@ -1939,7 +2143,7 @@ export default function Page() {
                     ? optionsAsked
                       ? "예: all로 200개, 비워두면 representative"
                       : "Start typing a follow-up question..."
-                    : "Upload a VCF or raw sequencing file first"
+                    : "Upload a VCF, raw sequencing file, or summary statistics file first"
                 }
                 onKeyDown={(event) => {
                   if (isComposing || event.nativeEvent.isComposing) {
@@ -1963,7 +2167,7 @@ export default function Page() {
             <h2>Studio</h2>
           </div>
           <div className="studioPanelBody">
-            {analysis || rawQcAnalysis ? (
+            {analysis || rawQcAnalysis || summaryStatsAnalysis ? (
               <div className="studioGrid">
                 {studioCards.map((card) => (
                   <button
@@ -1979,14 +2183,101 @@ export default function Page() {
               </div>
             ) : null}
             <div className="studioHint">
-              {analysis || rawQcAnalysis ? "Choose a card to open a result view." : "Studio cards will appear after tool-driven analysis results are ready."}
+              {analysis || rawQcAnalysis || summaryStatsAnalysis ? "Choose a card to open a result view." : "Studio cards will appear after tool-driven analysis results are ready."}
             </div>
           </div>
         </aside>
       </div>
 
-      {(analysis || rawQcAnalysis) && activeStudioView ? (
+      {(analysis || rawQcAnalysis || summaryStatsAnalysis) && activeStudioView ? (
         <section ref={studioCanvasRef} className="studioCanvas">
+          {summaryStatsAnalysis && activeStudioView === "sumstats" ? (
+            <section className="notebookPanel studioCanvasPanel">
+              <div className="notebookHeader">
+                <h2>Summary Stats Review</h2>
+              </div>
+              <div className="studioCanvasBody">
+                <div className="resultMetricGrid">
+                  <MetricTile label="Rows" value={String(summaryStatsAnalysis.row_count)} tone="good" />
+                  <MetricTile label="Columns" value={String(summaryStatsAnalysis.detected_columns.length)} tone="neutral" />
+                  <MetricTile label="Build" value={summaryStatsAnalysis.genome_build} tone="neutral" />
+                  <MetricTile label="Trait" value={summaryStatsAnalysis.trait_type} tone="neutral" />
+                  <MetricTile label="Delimiter" value={summaryStatsAnalysis.delimiter} tone="neutral" />
+                  <MetricTile label="Warnings" value={String(summaryStatsAnalysis.warnings.length)} tone="neutral" />
+                </div>
+                <div className="resultSectionSplit">
+                  <article className="miniCard">
+                    <h3>Detected columns</h3>
+                    <ul className="hintList">
+                      {summaryStatsAnalysis.detected_columns.map((column) => (
+                        <li key={column}>{column}</li>
+                      ))}
+                    </ul>
+                  </article>
+                  <article className="miniCard">
+                    <h3>Auto-mapped fields</h3>
+                    <ul className="hintList">
+                      {Object.entries(summaryStatsAnalysis.mapped_fields).map(([field, value]) => (
+                        <li key={field}>
+                          <strong>{field}</strong>: {value || "not detected"}
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                </div>
+                <article className="miniCard">
+                  <h3>Preview grid</h3>
+                  <p className="summaryStatsGridMeta">
+                    Showing {summaryStatsGridRows.length} of {summaryStatsAnalysis.row_count} rows
+                  </p>
+                  <div ref={summaryStatsGridRef} className="variantTableWrap summaryStatsTableWrap" onScroll={handleSummaryStatsGridScroll}>
+                    <table className="variantTable summaryStatsTable">
+                      <thead>
+                        <tr>
+                          <th className="summaryStatsRowHeader">#</th>
+                          {summaryStatsAnalysis.detected_columns.map((column) => (
+                            <th key={column}>{column}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summaryStatsGridRows.map((row, index) => (
+                          <tr key={`sumstats-preview-${index}`}>
+                            <td className="summaryStatsRowHeader">{index + 1}</td>
+                            {summaryStatsAnalysis.detected_columns.map((column) => (
+                              <td key={`${index}-${column}`}>{row[column] || ""}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {summaryStatsRowsLoading ? <div className="summaryStatsGridFooter">Loading more rows...</div> : null}
+                    {!summaryStatsRowsLoading && summaryStatsHasMore ? (
+                      <div className="summaryStatsGridFooter">
+                        <button type="button" className="sourceAddButton summaryStatsLoadMoreButton" onClick={() => void loadMoreSummaryStatsRows()}>
+                          Load more rows
+                        </button>
+                      </div>
+                    ) : null}
+                    {!summaryStatsHasMore && summaryStatsGridRows.length ? (
+                      <div className="summaryStatsGridFooter">All loaded rows are shown.</div>
+                    ) : null}
+                  </div>
+                </article>
+                {summaryStatsAnalysis.warnings.length ? (
+                  <div className="resultList">
+                    {summaryStatsAnalysis.warnings.map((warning, index) => (
+                      <article key={`sumstats-warning-${index}`} className="resultListItem resultListStatic">
+                        <strong>Warning {index + 1}</strong>
+                        <span>{warning}</span>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
           {rawQcAnalysis && activeStudioView === "rawqc" ? (
             <section className="notebookPanel studioCanvasPanel">
               <div className="notebookHeader">

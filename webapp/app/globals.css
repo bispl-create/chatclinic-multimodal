@@ -1016,7 +1016,8 @@ button {
 
 .sourcePanelBody,
 .chatPanelBody,
-.studioPanelBody {
+.studioPanelBody,
+.studioCanvasBody {
   flex: 1;
   min-height: 0;
 }
@@ -1027,6 +1028,16 @@ button {
 
 .studioPanelBody {
   overflow-y: auto;
+}
+
+.studioCanvasPanel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(82vh, 920px);
+}
+
+.studioCanvasBody {
+  overflow: auto;
 }
 
 .sourceSplitPanel {
@@ -1614,6 +1625,13 @@ button {
   background: #fffdfa;
 }
 
+.summaryStatsTableWrap {
+  height: min(56vh, 640px);
+  max-height: 640px;
+  min-height: 320px;
+  margin-top: 6px;
+}
+
 .variantTable {
   width: 100%;
   border-collapse: collapse;
@@ -1635,6 +1653,48 @@ button {
   z-index: 1;
   color: var(--muted);
   font-weight: 600;
+}
+
+.summaryStatsTable th,
+.summaryStatsTable td {
+  white-space: nowrap;
+}
+
+.summaryStatsRowHeader {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #f4efe5;
+  color: var(--muted);
+  font-weight: 600;
+  min-width: 56px;
+  text-align: right;
+}
+
+.summaryStatsTable thead .summaryStatsRowHeader {
+  z-index: 3;
+}
+
+.summaryStatsGridFooter {
+  padding: 12px 14px;
+  border-top: 1px solid rgba(31, 35, 41, 0.08);
+  background: rgba(248, 243, 234, 0.9);
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.summaryStatsGridMeta {
+  margin: 6px 0 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.summaryStatsLoadMoreButton {
+  width: auto;
+  margin: 0;
+  padding-inline: 18px;
 }
 
 .variantTableRow {

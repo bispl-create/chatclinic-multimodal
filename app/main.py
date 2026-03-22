@@ -15,6 +15,8 @@ from app.models import (
     AnalysisChatResponse,
     AnalysisJobResponse,
     AnalysisResponse,
+    GatkLiftoverVcfRequest,
+    GatkLiftoverVcfResponse,
     LDBlockShowRequest,
     LDBlockShowResponse,
     CountSummaryItem,
@@ -23,6 +25,8 @@ from app.models import (
     FilterRequest,
     FilterResponse,
     FromPathRequest,
+    PlinkRequest,
+    PlinkResponse,
     RankedCandidate,
     RawQcChatRequest,
     RawQcChatResponse,
@@ -34,6 +38,9 @@ from app.models import (
     SnpEffResponse,
     SamtoolsRequest,
     SamtoolsResponse,
+    SummaryStatsRowsRequest,
+    SummaryStatsRowsResponse,
+    SummaryStatsResponse,
     SymbolicAltSummary,
     ToolInfo,
     VariantAnnotation,
@@ -46,14 +53,17 @@ from app.services.candidate_ranking import build_ranked_candidates
 from app.services.chat import answer_analysis_chat, answer_raw_qc_chat
 from app.services.fastqc import FASTQC_OUTPUT_DIR
 from app.services.filtering import run_filter
+from app.services.gatk_liftover import run_gatk_liftover_vcf
 from app.services.jobs import create_job, get_job, run_job
 from app.services.ldblockshow import LDBLOCKSHOW_OUTPUT_DIR, run_ldblockshow
+from app.services.plink import run_plink
 from app.services.samtools import run_samtools
 from app.services.recommendation import build_recommendations
 from app.services.references import build_reference_bundle
 from app.services.r_vcf_plots import RPLOT_OUTPUT_DIR, run_cmplot_association, run_r_vcf_plots
 from app.services.roh_analysis import run_roh_analysis
 from app.services.snpeff import run_snpeff
+from app.services.summary_stats import analyze_summary_stats, load_summary_stats_rows
 from app.services.tool_runner import discover_tools, run_tool
 from app.services.variant_annotation import annotate_variants
 from app.services.vcf_summary import summarize_vcf
@@ -95,6 +105,7 @@ app.add_middleware(
 ROOT_DIR = Path(__file__).resolve().parents[1]
 ANALYSIS_UPLOAD_DIR = ROOT_DIR / "uploads" / "analysis"
 RAW_QC_UPLOAD_DIR = ROOT_DIR / "uploads" / "raw_qc"
+SUMMARY_STATS_UPLOAD_DIR = ROOT_DIR / "uploads" / "summary_stats"
 PLUGINS_DIR = ROOT_DIR / "plugins"
 
 
@@ -364,6 +375,22 @@ def _is_raw_qc_filename(file_name: str) -> bool:
     return lowered.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz", ".bam", ".sam"))
 
 
+def _is_summary_stats_filename(file_name: str) -> bool:
+    lowered = file_name.lower()
+    return lowered.endswith(
+        (
+            ".tsv",
+            ".tsv.gz",
+            ".txt",
+            ".txt.gz",
+            ".csv",
+            ".csv.gz",
+            ".sumstats",
+            ".sumstats.gz",
+        )
+    )
+
+
 def _safe_fastqc_artifact_path(path_str: str) -> Path:
     candidate = Path(path_str).resolve()
     root = FASTQC_OUTPUT_DIR.resolve()
@@ -509,6 +536,26 @@ def run_samtools_alignment_qc(request: SamtoolsRequest) -> SamtoolsResponse:
         raise HTTPException(status_code=400, detail=f"samtools failed: {exc}") from exc
 
 
+@app.post("/api/v1/plink/run", response_model=PlinkResponse)
+def run_plink_qc(request: PlinkRequest) -> PlinkResponse:
+    try:
+        return run_plink(request)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"PLINK 2 failed: {exc}") from exc
+
+
+@app.post("/api/v1/liftover/run", response_model=GatkLiftoverVcfResponse)
+def run_liftover_vcf(request: GatkLiftoverVcfRequest) -> GatkLiftoverVcfResponse:
+    try:
+        return run_gatk_liftover_vcf(request)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"GATK LiftoverVcf failed: {exc}") from exc
+
+
 @app.post("/api/v1/ldblockshow/run", response_model=LDBlockShowResponse)
 def run_ldblockshow_plot(request: LDBlockShowRequest) -> LDBlockShowResponse:
     try:
@@ -580,6 +627,52 @@ async def analyze_raw_qc_upload(file: UploadFile = File(...)) -> RawQcResponse:
     durable_path = RAW_QC_UPLOAD_DIR / f"{uuid.uuid4().hex[:12]}_{safe_stem}{suffixes}"
     durable_path.write_bytes(await file.read())
     return _analyze_raw_qc(str(durable_path), filename)
+
+
+@app.post("/api/v1/summary-stats/upload", response_model=SummaryStatsResponse)
+async def analyze_summary_stats_upload(
+    file: UploadFile = File(...),
+    genome_build: str = Form("unknown"),
+    trait_type: str = Form("unknown"),
+) -> SummaryStatsResponse:
+    filename = file.filename or "summary_stats.tsv.gz"
+    if not _is_summary_stats_filename(filename):
+        raise HTTPException(
+            status_code=400,
+            detail="Only TSV/TXT/CSV summary statistics uploads are supported.",
+        )
+
+    suffixes = "".join(Path(filename).suffixes) or Path(filename).suffix or ".tsv"
+    SUMMARY_STATS_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_stem = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in Path(filename).stem)
+    durable_path = SUMMARY_STATS_UPLOAD_DIR / f"{uuid.uuid4().hex[:12]}_{safe_stem}{suffixes}"
+    durable_path.write_bytes(await file.read())
+    try:
+        result = analyze_summary_stats(str(durable_path), filename, genome_build=genome_build, trait_type=trait_type)
+        result.analysis_id = str(uuid.uuid4())
+        result.tool_registry = discover_tools()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Summary statistics intake failed: {exc}") from exc
+
+
+@app.post("/api/v1/summary-stats/rows", response_model=SummaryStatsRowsResponse)
+async def analyze_summary_stats_rows(request: SummaryStatsRowsRequest) -> SummaryStatsRowsResponse:
+    try:
+        rows, has_more = load_summary_stats_rows(
+            request.source_stats_path,
+            offset=request.offset,
+            limit=request.limit,
+        )
+        return SummaryStatsRowsResponse(
+            rows=rows,
+            offset=request.offset,
+            limit=request.limit,
+            returned=len(rows),
+            has_more=has_more,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Summary statistics row loading failed: {exc}") from exc
 
 
 @app.get("/api/v1/raw-qc/report")

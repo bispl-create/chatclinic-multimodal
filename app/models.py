@@ -267,6 +267,50 @@ class RawQcChatResponse(BaseModel):
     samtools_result: Optional[SamtoolsResponse] = None
 
 
+class SummaryStatsFieldMapping(BaseModel):
+    chrom: Optional[str] = None
+    pos: Optional[str] = None
+    rsid: Optional[str] = None
+    effect_allele: Optional[str] = None
+    other_allele: Optional[str] = None
+    beta_or: Optional[str] = None
+    standard_error: Optional[str] = None
+    p_value: Optional[str] = None
+    n: Optional[str] = None
+    eaf: Optional[str] = None
+
+
+class SummaryStatsResponse(BaseModel):
+    analysis_id: str
+    source_stats_path: Optional[str] = None
+    file_name: str
+    genome_build: str = "unknown"
+    trait_type: str = "unknown"
+    delimiter: str = "tab"
+    detected_columns: list[str]
+    mapped_fields: SummaryStatsFieldMapping
+    row_count: int = 0
+    preview_rows: list[dict[str, str]] = []
+    warnings: list[str] = []
+    draft_answer: str
+    used_tools: list[str] = []
+    tool_registry: list[ToolInfo] = []
+
+
+class SummaryStatsRowsRequest(BaseModel):
+    source_stats_path: str
+    offset: int = 0
+    limit: int = 200
+
+
+class SummaryStatsRowsResponse(BaseModel):
+    rows: list[dict[str, str]]
+    offset: int
+    limit: int
+    returned: int
+    has_more: bool
+
+
 class WorkflowStartRequest(BaseModel):
     file_name: str
 
