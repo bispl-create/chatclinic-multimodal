@@ -7,8 +7,21 @@ import urllib.request
 from pathlib import Path
 
 from app.models import AnalysisChatRequest, AnalysisChatResponse, RawQcChatRequest, RawQcChatResponse
-from app.models import LDBlockShowRequest, LDBlockShowResponse, SamtoolsRequest, SnpEffRequest
+from app.models import (
+    GatkLiftoverVcfRequest,
+    LDBlockShowRequest,
+    LDBlockShowResponse,
+    PlinkRequest,
+    SamtoolsRequest,
+    SnpEffRequest,
+)
+from app.services.gatk_liftover import (
+    DEFAULT_CHAIN_FILE,
+    DEFAULT_TARGET_FASTA,
+    run_gatk_liftover_vcf,
+)
 from app.services.ldblockshow import run_ldblockshow
+from app.services.plink import run_plink
 from app.services.samtools import run_samtools
 from app.services.snpeff import run_snpeff
 
@@ -19,7 +32,9 @@ PLUGINS_DIR = ROOT_DIR / "plugins"
 def _load_direct_tool_routing_specs() -> list[dict[str, object]]:
     specs: list[dict[str, object]] = []
     for tool_name in (
+        "gatk_liftover_vcf_tool",
         "ldblockshow_execution_tool",
+        "plink_execution_tool",
         "snpeff_execution_tool",
     ):
         manifest = PLUGINS_DIR / tool_name / "tool.json"
@@ -450,6 +465,78 @@ def _snpeff_genome_from_build(build_guess: str | None) -> str:
     return "GRCh37.75"
 
 
+def _extract_liftover_target_build(question: str, build_guess: str | None) -> tuple[str, str]:
+    lowered = question.lower()
+    if any(token in lowered for token in ("hg38", "grch38", "38")):
+        return "GRCh38", "hg38"
+    if any(token in lowered for token in ("hg19", "grch37", "37")):
+        return "GRCh37", "hg19"
+    current_guess = (build_guess or "").lower()
+    if any(token in current_guess for token in ("37", "hg19", "grch37")):
+        return "GRCh38", "hg38"
+    return "GRCh38", "hg38"
+
+
+def _handle_liftover_request(payload: AnalysisChatRequest) -> AnalysisChatResponse:
+    source_vcf_path = payload.analysis.source_vcf_path
+    if not source_vcf_path:
+        return AnalysisChatResponse(
+            answer="The current analysis context does not include a source VCF path, so liftover cannot be run from this chat turn.",
+            citations=[],
+            used_fallback=True,
+            used_tools=["gatk_liftover_vcf_tool"],
+        )
+
+    target_build, target_label = _extract_liftover_target_build(
+        payload.question,
+        payload.analysis.facts.genome_build_guess,
+    )
+    existing = payload.analysis.liftover_result
+    if existing is not None and (existing.target_build or "").lower() == target_build.lower():
+        return AnalysisChatResponse(
+            answer=(
+                f"Liftover results are already available for the current VCF.\n\n"
+                f"- Source build: `{existing.source_build or 'unknown'}`\n"
+                f"- Target build: `{existing.target_build or target_build}`\n"
+                f"- Lifted VCF: `{existing.output_path}`\n"
+                f"- Reject VCF: `{existing.reject_path}`\n\n"
+                "The existing LiftOver Review card has been reused instead of rerunning the tool."
+            ),
+            citations=[],
+            used_fallback=False,
+            used_tools=["gatk_liftover_vcf_tool"],
+            liftover_result=existing,
+        )
+
+    result = run_gatk_liftover_vcf(
+        GatkLiftoverVcfRequest(
+            vcf_path=source_vcf_path,
+            target_reference_fasta=str(DEFAULT_TARGET_FASTA),
+            chain_file=str(DEFAULT_CHAIN_FILE),
+            source_build=payload.analysis.facts.genome_build_guess or None,
+            target_build=target_build,
+            output_prefix=f"{payload.analysis.analysis_id}-liftover-{target_label}",
+            parse_limit=8,
+        )
+    )
+    return AnalysisChatResponse(
+        answer=(
+            f"GATK LiftoverVcf was run for the current VCF.\n\n"
+            f"- Source build: `{result.source_build or 'unknown'}`\n"
+            f"- Target build: `{result.target_build or target_build}`\n"
+            f"- Lifted records: {result.lifted_record_count if result.lifted_record_count is not None else 'unknown'}\n"
+            f"- Rejected records: {result.rejected_record_count if result.rejected_record_count is not None else 'unknown'}\n"
+            f"- Lifted VCF: `{result.output_path}`\n"
+            f"- Reject VCF: `{result.reject_path}`\n\n"
+            "The Studio card has been updated with the latest liftover result."
+        ),
+        citations=[],
+        used_fallback=False,
+        used_tools=["gatk_liftover_vcf_tool"],
+        liftover_result=result,
+    )
+
+
 def _handle_snpeff_request(payload: AnalysisChatRequest) -> AnalysisChatResponse:
     source_vcf_path = payload.analysis.source_vcf_path
     if not source_vcf_path:
@@ -492,6 +579,42 @@ def _handle_snpeff_request(payload: AnalysisChatRequest) -> AnalysisChatResponse
         citations=[],
         used_fallback=False,
         used_tools=["snpeff_execution_tool"],
+    )
+
+
+def _handle_plink_request(payload: AnalysisChatRequest) -> AnalysisChatResponse:
+    source_vcf_path = payload.analysis.source_vcf_path
+    if not source_vcf_path:
+        return AnalysisChatResponse(
+            answer="The current analysis context does not include a source VCF path, so PLINK cannot be run from this chat turn.",
+            citations=[],
+            used_fallback=True,
+            used_tools=["plink_execution_tool"],
+            requested_view="plink",
+        )
+
+    existing = payload.analysis.plink_result
+    answer = (
+        "The PLINK card is ready in Studio.\n\n"
+        "- This ChatGenome build currently exposes PLINK as a deterministic QC workflow.\n"
+        "- You can choose the QC options, review the command preview, and run PLINK from the card.\n"
+        "- The result will appear in the same card after execution."
+    )
+    if existing is not None:
+        answer += (
+            f"\n\nAn existing PLINK result is already present for this analysis:\n"
+            f"- Output prefix: `{existing.output_prefix}`\n"
+            f"- Frequency rows: {len(existing.freq_rows)}\n"
+            f"- Missingness rows: {len(existing.missing_rows)}\n"
+            f"- Hardy rows: {len(existing.hardy_rows)}"
+        )
+    return AnalysisChatResponse(
+        answer=answer,
+        citations=[],
+        used_fallback=False,
+        used_tools=payload.analysis.used_tools or [],
+        requested_view="plink",
+        plink_result=existing,
     )
 
 
@@ -595,6 +718,17 @@ def answer_analysis_chat(payload: AnalysisChatRequest) -> AnalysisChatResponse:
                 ),
             )
 
+    if direct_tool and direct_tool.get("name") == "gatk_liftover_vcf_tool":
+        try:
+            return _handle_liftover_request(payload)
+        except Exception as exc:
+            return AnalysisChatResponse(
+                answer=f"GATK liftover execution failed: {exc}",
+                citations=[],
+                used_fallback=True,
+                used_tools=["gatk_liftover_vcf_tool"],
+            )
+
     if direct_tool and direct_tool.get("name") == "snpeff_execution_tool":
         try:
             return _handle_snpeff_request(payload)
@@ -604,6 +738,18 @@ def answer_analysis_chat(payload: AnalysisChatRequest) -> AnalysisChatResponse:
                 citations=[],
                 used_fallback=True,
                 used_tools=["snpeff_execution_tool"],
+            )
+
+    if direct_tool and direct_tool.get("name") == "plink_execution_tool":
+        try:
+            return _handle_plink_request(payload)
+        except Exception as exc:
+            return AnalysisChatResponse(
+                answer=f"PLINK request handling failed: {exc}",
+                citations=[],
+                used_fallback=True,
+                used_tools=["plink_execution_tool"],
+                requested_view="plink",
             )
     try:
         return _call_openai(payload)

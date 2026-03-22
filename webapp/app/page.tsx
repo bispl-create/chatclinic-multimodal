@@ -99,6 +99,62 @@ type AnalysisResponse = {
       }>;
     }>;
   } | null;
+  plink_result?: {
+    tool: string;
+    input_path: string;
+    command_preview: string;
+    output_prefix: string;
+    log_path?: string | null;
+    freq_path?: string | null;
+    missing_path?: string | null;
+    hardy_path?: string | null;
+    variant_count?: number | null;
+    sample_count?: number | null;
+    freq_rows: Array<{
+      chrom: string;
+      variant_id: string;
+      ref_allele: string;
+      alt_allele: string;
+      alt_freq?: number | null;
+      observation_count?: number | null;
+    }>;
+    missing_rows: Array<{
+      sample_id: string;
+      missing_genotype_count: number;
+      observation_count: number;
+      missing_rate: number;
+    }>;
+    hardy_rows: Array<{
+      chrom: string;
+      variant_id: string;
+      observed_hets?: number | null;
+      expected_hets?: number | null;
+      p_value?: number | null;
+    }>;
+    warnings: string[];
+  } | null;
+  liftover_result?: {
+    tool: string;
+    input_path: string;
+    source_build?: string | null;
+    target_build?: string | null;
+    target_reference_fasta: string;
+    chain_file: string;
+    output_path: string;
+    output_index_path?: string | null;
+    reject_path: string;
+    reject_index_path?: string | null;
+    command_preview: string;
+    lifted_record_count?: number | null;
+    rejected_record_count?: number | null;
+    parsed_records: Array<{
+      contig: string;
+      pos_1based: number;
+      ref: string;
+      alts: string[];
+    }>;
+    warnings: string[];
+  } | null;
   ldblockshow_result?: {
     tool: string;
     input_path: string;
@@ -247,6 +303,8 @@ type StudioView =
   | "rawqc"
   | "samtools"
   | "snpeff"
+  | "plink"
+  | "liftover"
   | "ldblockshow"
   | "symbolic"
   | "roh"
@@ -663,6 +721,14 @@ export default function Page() {
   const [followUpAnswer, setFollowUpAnswer] = useState<string | null>(null);
   const [initialGroundedAnswer, setInitialGroundedAnswer] = useState<string | null>(null);
   const [activeStudioView, setActiveStudioView] = useState<StudioView | null>(null);
+  const [plinkRunning, setPlinkRunning] = useState(false);
+  const [plinkConfig, setPlinkConfig] = useState({
+    runFreq: true,
+    runMissing: true,
+    runHardy: true,
+    allowExtraChr: true,
+    outputPrefix: "",
+  });
   const [toolRegistryOpen, setToolRegistryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const studioCanvasRef = useRef<HTMLElement | null>(null);
@@ -674,6 +740,31 @@ export default function Page() {
       : rawQcAnalysis?.tool_registry?.length
         ? rawQcAnalysis.tool_registry
         : toolRegistry;
+  const plinkCommandPreview = useMemo(() => {
+    const inputPath = analysis?.source_vcf_path || "<source.vcf.gz>";
+    const outputPrefix = (plinkConfig.outputPrefix || `${analysis?.analysis_id ?? "analysis"}-plink`).trim();
+    const flags: string[] = [];
+    if (plinkConfig.runFreq) {
+      flags.push("--freq");
+    }
+    if (plinkConfig.runMissing) {
+      flags.push("--missing");
+    }
+    if (plinkConfig.runHardy) {
+      flags.push("--hardy");
+    }
+    if (plinkConfig.allowExtraChr) {
+      flags.push("--allow-extra-chr");
+    }
+    return `plink2 --vcf ${inputPath} dosage=DS ${flags.join(" ")} --out ${outputPrefix}`.trim();
+  }, [analysis, plinkConfig]);
+
+  useEffect(() => {
+    if (!analysis) {
+      return;
+    }
+    setPlinkConfig((current) => ({ ...current, outputPrefix: `${analysis.analysis_id}-plink` }));
+  }, [analysis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1022,6 +1113,33 @@ export default function Page() {
       }
       const payload = await response.json();
       setAnalysisQa((current) => [...current, { role: "assistant", content: payload.answer }]);
+      if (payload.requested_view === "plink") {
+        setActiveStudioView("plink");
+      }
+      if (payload.plink_result) {
+        setAnalysis((current) =>
+          current
+            ? {
+                ...current,
+                plink_result: payload.plink_result,
+                used_tools: payload.used_tools ?? current.used_tools,
+              }
+            : current,
+        );
+        setActiveStudioView("plink");
+      }
+      if (payload.liftover_result) {
+        setAnalysis((current) =>
+          current
+            ? {
+                ...current,
+                liftover_result: payload.liftover_result,
+                used_tools: payload.used_tools ?? ["gatk_liftover_vcf_tool"],
+              }
+            : current,
+        );
+        setActiveStudioView("liftover");
+      }
       if (payload.ldblockshow_result) {
         setAnalysis((current) =>
           current
@@ -1043,6 +1161,56 @@ export default function Page() {
         { role: "assistant", content: `설명 요청 중 오류가 발생했습니다: ${msg}` },
       ]);
       setStatus("Answer failed");
+    }
+  }
+
+  async function handleRunPlink() {
+    if (!analysis?.source_vcf_path) {
+      setError("현재 분석에는 실행 가능한 source VCF path가 없습니다.");
+      return;
+    }
+
+    setPlinkRunning(true);
+    setStatus("Running PLINK...");
+    setError(null);
+    try {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/plink/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vcf_path: analysis.source_vcf_path,
+          output_prefix: (plinkConfig.outputPrefix || `${analysis.analysis_id}-plink`).trim(),
+          allow_extra_chr: plinkConfig.allowExtraChr,
+          freq_limit: plinkConfig.runFreq ? 12 : 0,
+          missing_limit: plinkConfig.runMissing ? 12 : 0,
+          hardy_limit: plinkConfig.runHardy ? 12 : 0,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = await response.json();
+      setAnalysis((current) =>
+        current
+          ? {
+              ...current,
+              plink_result: payload,
+              used_tools: ["plink_execution_tool"],
+            }
+          : current,
+      );
+      setActiveStudioView("plink");
+      setStatus("PLINK ready");
+    } catch (caught) {
+      const msg = caught instanceof Error ? caught.message : String(caught);
+      setError(msg);
+      setStatus("PLINK failed");
+      setAnalysisQa((current) => [
+        ...current,
+        { role: "assistant", content: `PLINK 실행 중 오류가 발생했습니다: ${msg}` },
+      ]);
+    } finally {
+      setPlinkRunning(false);
     }
   }
 
@@ -1422,6 +1590,10 @@ export default function Page() {
         { id: "qc", title: "QC Summary", subtitle: "PASS, Ti/Tv, GT quality" },
         { id: "coverage", title: "Clinical Coverage", subtitle: "Annotation completeness view" },
         { id: "snpeff", title: "SnpEff Review", subtitle: "Local effect annotation preview" },
+        { id: "plink", title: "PLINK", subtitle: "QC command runner and result review" },
+        ...(analysis?.liftover_result
+          ? [{ id: "liftover" as StudioView, title: "LiftOver Review", subtitle: "Genome build conversion result" }]
+          : []),
         ...(analysis?.ldblockshow_result
           ? [{ id: "ldblockshow" as StudioView, title: "LD Block Review", subtitle: "Locus-level LD heatmap" }]
           : []),
@@ -1511,11 +1683,28 @@ export default function Page() {
             })),
           }
         : null,
+      liftover_preview: analysis?.liftover_result
+        ? {
+            source_build: analysis.liftover_result.source_build,
+            target_build: analysis.liftover_result.target_build,
+            lifted_record_count: analysis.liftover_result.lifted_record_count,
+            rejected_record_count: analysis.liftover_result.rejected_record_count,
+            warnings: analysis.liftover_result.warnings.slice(0, 6),
+          }
+        : null,
       ldblockshow_preview: analysis?.ldblockshow_result
         ? {
             region: analysis.ldblockshow_result.region,
             svg_path: analysis.ldblockshow_result.svg_path,
             warnings: analysis.ldblockshow_result.warnings.slice(0, 6),
+          }
+        : null,
+      plink_preview: analysis?.plink_result
+        ? {
+            output_prefix: analysis.plink_result.output_prefix,
+            sample_count: analysis.plink_result.sample_count,
+            variant_count: analysis.plink_result.variant_count,
+            warnings: analysis.plink_result.warnings.slice(0, 6),
           }
         : null,
       selected_annotation: selectedAnnotation
@@ -2183,6 +2372,293 @@ export default function Page() {
                   </>
                 ) : (
                   <p className="emptyState">No auxiliary SnpEff result is available for the current analysis.</p>
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {analysis && activeStudioView === "plink" ? (
+            <section className="notebookPanel studioCanvasPanel">
+              <div className="notebookHeader">
+                <h2>PLINK</h2>
+              </div>
+              <div className="studioCanvasBody">
+                <div className="resultMetricGrid">
+                  <MetricTile label="Mode" value="QC" tone="good" />
+                  <MetricTile label="Source" value={analysis.facts.file_name} tone="neutral" />
+                  <MetricTile
+                    label="Existing result"
+                    value={analysis.plink_result ? "Available" : "Not run yet"}
+                    tone={analysis.plink_result ? "good" : "neutral"}
+                  />
+                  <MetricTile
+                    label="Runner"
+                    value={plinkRunning ? "Running" : "Ready"}
+                    tone={plinkRunning ? "warn" : "good"}
+                  />
+                </div>
+                <div className="resultList">
+                  <article className="resultListItem resultListStatic">
+                    <strong>Run configuration</strong>
+                    <div className="annotationMetaGrid">
+                      <label className="field compactField">
+                        <span>Output prefix</span>
+                        <input
+                          type="text"
+                          value={plinkConfig.outputPrefix}
+                          onChange={(event) =>
+                            setPlinkConfig((current) => ({ ...current, outputPrefix: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="field compactField">
+                        <span>Frequency summary</span>
+                        <input
+                          type="checkbox"
+                          checked={plinkConfig.runFreq}
+                          onChange={(event) =>
+                            setPlinkConfig((current) => ({ ...current, runFreq: event.target.checked }))
+                          }
+                        />
+                      </label>
+                      <label className="field compactField">
+                        <span>Missingness summary</span>
+                        <input
+                          type="checkbox"
+                          checked={plinkConfig.runMissing}
+                          onChange={(event) =>
+                            setPlinkConfig((current) => ({ ...current, runMissing: event.target.checked }))
+                          }
+                        />
+                      </label>
+                      <label className="field compactField">
+                        <span>Hardy-Weinberg summary</span>
+                        <input
+                          type="checkbox"
+                          checked={plinkConfig.runHardy}
+                          onChange={(event) =>
+                            setPlinkConfig((current) => ({ ...current, runHardy: event.target.checked }))
+                          }
+                        />
+                      </label>
+                      <label className="field compactField">
+                        <span>Allow extra chr labels</span>
+                        <input
+                          type="checkbox"
+                          checked={plinkConfig.allowExtraChr}
+                          onChange={(event) =>
+                            setPlinkConfig((current) => ({ ...current, allowExtraChr: event.target.checked }))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </article>
+                  <article className="resultListItem resultListStatic">
+                    <strong>Command preview</strong>
+                    <pre className="codeBlock">{plinkCommandPreview}</pre>
+                  </article>
+                </div>
+                <div className="resultActionRow">
+                  <button
+                    className="sourceAddButton"
+                    type="button"
+                    onClick={() => void handleRunPlink()}
+                    disabled={plinkRunning || !analysis.source_vcf_path}
+                  >
+                    {plinkRunning ? "Running PLINK..." : "Run PLINK"}
+                  </button>
+                </div>
+                {analysis.plink_result ? (
+                  <>
+                    <div className="resultMetricGrid">
+                      <MetricTile
+                        label="Samples"
+                        value={
+                          analysis.plink_result.sample_count != null ? String(analysis.plink_result.sample_count) : "n/a"
+                        }
+                        tone="neutral"
+                      />
+                      <MetricTile
+                        label="Variants"
+                        value={
+                          analysis.plink_result.variant_count != null ? String(analysis.plink_result.variant_count) : "n/a"
+                        }
+                        tone="neutral"
+                      />
+                      <MetricTile label="Freq rows" value={String(analysis.plink_result.freq_rows.length)} tone="good" />
+                      <MetricTile
+                        label="Missing rows"
+                        value={String(analysis.plink_result.missing_rows.length)}
+                        tone="good"
+                      />
+                      <MetricTile label="Hardy rows" value={String(analysis.plink_result.hardy_rows.length)} tone="good" />
+                      <MetricTile label="Warnings" value={String(analysis.plink_result.warnings.length)} tone="neutral" />
+                    </div>
+                    <div className="resultList">
+                      {analysis.plink_result.freq_rows.slice(0, 5).map((row, index) => (
+                        <article key={`plink-freq-${row.variant_id}-${index}`} className="resultListItem resultListStatic">
+                          <strong>
+                            {row.chrom}:{row.variant_id}
+                          </strong>
+                          <span>
+                            {row.ref_allele}&gt;{row.alt_allele} | AF{" "}
+                            {row.alt_freq != null ? row.alt_freq.toFixed(4) : "n/a"} | OBS{" "}
+                            {row.observation_count ?? "n/a"}
+                          </span>
+                        </article>
+                      ))}
+                      {analysis.plink_result.missing_rows.slice(0, 3).map((row, index) => (
+                        <article
+                          key={`plink-missing-${row.sample_id}-${index}`}
+                          className="resultListItem resultListStatic"
+                        >
+                          <strong>Missingness {row.sample_id}</strong>
+                          <span>
+                            {row.missing_genotype_count} missing / {row.observation_count} obs | rate{" "}
+                            {(row.missing_rate * 100).toFixed(2)}%
+                          </span>
+                        </article>
+                      ))}
+                      {analysis.plink_result.hardy_rows.slice(0, 5).map((row, index) => (
+                        <article key={`plink-hardy-${row.variant_id}-${index}`} className="resultListItem resultListStatic">
+                          <strong>
+                            Hardy {row.chrom}:{row.variant_id}
+                          </strong>
+                          <span>
+                            obs het {row.observed_hets ?? "n/a"} | exp het{" "}
+                            {row.expected_hets != null ? row.expected_hets.toFixed(2) : "n/a"} | p{" "}
+                            {row.p_value != null ? row.p_value.toExponential(3) : "n/a"}
+                          </span>
+                        </article>
+                      ))}
+                      {analysis.plink_result.warnings.map((warning, index) => (
+                        <article key={`plink-warning-${index}`} className="resultListItem resultListStatic">
+                          <strong>Warning {index + 1}</strong>
+                          <span>{warning}</span>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="resultActionRow">
+                      {analysis.plink_result.freq_path ? (
+                        <a
+                          className="sourceAddButton"
+                          href={`${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(
+                            analysis.plink_result.freq_path,
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open afreq
+                        </a>
+                      ) : null}
+                      {analysis.plink_result.missing_path ? (
+                        <a
+                          className="sourceAddButton"
+                          href={`${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(
+                            analysis.plink_result.missing_path,
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open smiss
+                        </a>
+                      ) : null}
+                      {analysis.plink_result.hardy_path ? (
+                        <a
+                          className="sourceAddButton"
+                          href={`${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(
+                            analysis.plink_result.hardy_path,
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open hardy
+                        </a>
+                      ) : null}
+                      {analysis.plink_result.log_path ? (
+                        <a
+                          className="sourceAddButton"
+                          href={`${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(
+                            analysis.plink_result.log_path,
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open log
+                        </a>
+                      ) : null}
+                    </div>
+                  </>
+                ) : (
+                  <p className="emptyState">No PLINK result is available yet. Configure the run and execute it from this card.</p>
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {analysis && activeStudioView === "liftover" ? (
+            <section className="notebookPanel studioCanvasPanel">
+              <div className="notebookHeader">
+                <h2>LiftOver Review</h2>
+              </div>
+              <div className="studioCanvasBody">
+                {analysis.liftover_result ? (
+                  <>
+                    <div className="resultMetricGrid">
+                      <MetricTile label="Source build" value={analysis.liftover_result.source_build ?? "unknown"} tone="neutral" />
+                      <MetricTile label="Target build" value={analysis.liftover_result.target_build ?? "unknown"} tone="good" />
+                      <MetricTile label="Lifted records" value={String(analysis.liftover_result.lifted_record_count ?? 0)} tone="good" />
+                      <MetricTile label="Rejected records" value={String(analysis.liftover_result.rejected_record_count ?? 0)} tone="neutral" />
+                      <MetricTile label="Warnings" value={String(analysis.liftover_result.warnings.length)} tone="neutral" />
+                      <MetricTile label="Tool" value={analysis.liftover_result.tool} tone="neutral" />
+                    </div>
+                    <div className="resultList">
+                      {analysis.liftover_result.parsed_records.length ? (
+                        analysis.liftover_result.parsed_records.map((record, index) => (
+                          <article key={`${record.contig}-${record.pos_1based}-${index}`} className="resultListItem resultListStatic">
+                            <strong>
+                              {record.contig}:{record.pos_1based} {record.ref}&gt;{record.alts.join(",")}
+                            </strong>
+                            <span>Lifted preview record</span>
+                          </article>
+                        ))
+                      ) : (
+                        <p className="emptyState">No lifted preview records are available for this result.</p>
+                      )}
+                      {analysis.liftover_result.warnings.length
+                        ? analysis.liftover_result.warnings.map((warning, index) => (
+                            <article key={`liftover-warning-${index}`} className="resultListItem resultListStatic">
+                              <strong>Warning {index + 1}</strong>
+                              <span>{warning}</span>
+                            </article>
+                          ))
+                        : null}
+                    </div>
+                    <div className="resultActionRow">
+                      <a
+                        className="sourceAddButton"
+                        href={`${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(
+                          analysis.liftover_result.output_path,
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open lifted VCF
+                      </a>
+                      <a
+                        className="sourceAddButton"
+                        href={`${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(
+                          analysis.liftover_result.reject_path,
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open reject VCF
+                      </a>
+                    </div>
+                  </>
+                ) : (
+                  <p className="emptyState">No liftover result is available for the current analysis.</p>
                 )}
               </div>
             </section>

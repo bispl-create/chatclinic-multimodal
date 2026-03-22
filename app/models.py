@@ -177,6 +177,8 @@ class AnalysisResponse(BaseModel):
     roh_segments: list[RohSegment]
     source_vcf_path: Optional[str] = None
     snpeff_result: Optional[SnpEffResponse] = None
+    plink_result: Optional[PlinkResponse] = None
+    liftover_result: Optional[GatkLiftoverVcfResponse] = None
     ldblockshow_result: Optional[LDBlockShowResponse] = None
     candidate_variants: list[RankedCandidate] = []
     clinvar_summary: list[CountSummaryItem] = []
@@ -216,6 +218,9 @@ class AnalysisChatResponse(BaseModel):
     citations: list[str]
     used_fallback: bool
     used_tools: list[str] = []
+    requested_view: Optional[str] = None
+    plink_result: Optional[PlinkResponse] = None
+    liftover_result: Optional[GatkLiftoverVcfResponse] = None
     ldblockshow_result: Optional[LDBlockShowResponse] = None
 
 
@@ -385,6 +390,97 @@ class SamtoolsResponse(BaseModel):
     index_path: Optional[str] = None
     stats_highlights: list[SamtoolsStatsItem] = []
     idxstats_rows: list[SamtoolsIdxstatsRow] = []
+    warnings: list[str] = []
+
+
+class PlinkRequest(BaseModel):
+    vcf_path: str = Field(..., description="Absolute path to the input VCF or VCF.gz")
+    output_prefix: Optional[str] = Field(
+        default=None,
+        description="Optional output prefix. Files are written under the app PLINK output directory.",
+    )
+    allow_extra_chr: bool = Field(default=True, description="Allow noncanonical chromosome labels such as chr1.")
+    freq_limit: int = Field(default=12, description="Maximum number of allele frequency rows to keep")
+    missing_limit: int = Field(default=12, description="Maximum number of missingness rows to keep")
+    hardy_limit: int = Field(default=12, description="Maximum number of Hardy-Weinberg rows to keep")
+
+
+class PlinkFreqRow(BaseModel):
+    chrom: str
+    variant_id: str
+    ref_allele: str
+    alt_allele: str
+    alt_freq: Optional[float] = None
+    observation_count: Optional[int] = None
+
+
+class PlinkMissingRow(BaseModel):
+    sample_id: str
+    missing_genotype_count: int
+    observation_count: int
+    missing_rate: float
+
+
+class PlinkHardyRow(BaseModel):
+    chrom: str
+    variant_id: str
+    observed_hets: Optional[int] = None
+    expected_hets: Optional[float] = None
+    p_value: Optional[float] = None
+
+
+class PlinkResponse(BaseModel):
+    tool: str
+    input_path: str
+    command_preview: str
+    output_prefix: str
+    log_path: Optional[str] = None
+    freq_path: Optional[str] = None
+    missing_path: Optional[str] = None
+    hardy_path: Optional[str] = None
+    variant_count: Optional[int] = None
+    sample_count: Optional[int] = None
+    freq_rows: list[PlinkFreqRow] = []
+    missing_rows: list[PlinkMissingRow] = []
+    hardy_rows: list[PlinkHardyRow] = []
+    warnings: list[str] = []
+
+
+class GatkLiftoverVcfRequest(BaseModel):
+    vcf_path: str = Field(..., description="Absolute path to the input VCF or VCF.gz")
+    target_reference_fasta: str = Field(..., description="Absolute path to the target reference FASTA")
+    chain_file: str = Field(..., description="Absolute path to the chain file used for liftover")
+    source_build: Optional[str] = Field(default=None, description="Optional source build label such as GRCh37")
+    target_build: Optional[str] = Field(default=None, description="Optional target build label such as GRCh38")
+    output_prefix: Optional[str] = Field(
+        default=None,
+        description="Optional output prefix. Files are written under the app liftover output directory.",
+    )
+    parse_limit: int = Field(default=12, description="Maximum number of lifted records to parse for preview")
+
+
+class GatkLiftoverRecord(BaseModel):
+    contig: str
+    pos_1based: int
+    ref: str
+    alts: list[str]
+
+
+class GatkLiftoverVcfResponse(BaseModel):
+    tool: str
+    input_path: str
+    source_build: Optional[str] = None
+    target_build: Optional[str] = None
+    target_reference_fasta: str
+    chain_file: str
+    output_path: str
+    output_index_path: Optional[str] = None
+    reject_path: str
+    reject_index_path: Optional[str] = None
+    command_preview: str
+    lifted_record_count: Optional[int] = None
+    rejected_record_count: Optional[int] = None
+    parsed_records: list[GatkLiftoverRecord] = []
     warnings: list[str] = []
 
 
