@@ -141,12 +141,13 @@ def _parse_score_rows(path: Path, limit: int = 12) -> tuple[list[PlinkScoreRow],
                 row.get("SCORE1_SUM")
                 or row.get("SCORE_SUM")
                 or row.get("SCORE_AVG")
+                or row.get("BETA_SUM")
             )
             if score_sum is not None:
                 score_values.append(score_sum)
             rows.append(
                 PlinkScoreRow(
-                    sample_id=str(row.get("IID") or row.get("#IID") or row.get("FID") or ""),
+                    sample_id=str(row.get("#IID") or row.get("IID") or row.get("FID") or ""),
                     allele_ct=_maybe_float(row.get("ALLELE_CT")),
                     named_allele_dosage_sum=_maybe_float(row.get("DENOM")),
                     score_sum=score_sum,
@@ -170,7 +171,7 @@ def run_plink(request: PlinkRequest) -> PlinkResponse:
     output_prefix = _safe_prefix(request.output_prefix, request.vcf_path)
     output_base = PLINK_OUTPUT_DIR / output_prefix
 
-    cmd = [str(PLINK_BIN), "--vcf", str(input_path), "dosage=DS"]
+    cmd = [str(PLINK_BIN), "--vcf", str(input_path)]
     if request.allow_extra_chr:
         cmd.append("--allow-extra-chr")
 
@@ -183,16 +184,22 @@ def run_plink(request: PlinkRequest) -> PlinkResponse:
             raise FileNotFoundError(f"PLINK score file not found: {request.score_file_path}")
         cmd.extend(
             [
+                "--set-all-var-ids",
+                "@:#:$r:$a",
+                "--new-id-max-allele-len",
+                "200",
                 "--score",
                 str(score_path),
                 "1",
                 "2",
                 "3",
                 "header-read",
+                "no-mean-imputation",
                 "cols=scoresums",
             ]
         )
     else:
+        cmd.append("dosage=DS")
         if request.freq_limit > 0:
             cmd.append("--freq")
         if request.missing_limit > 0:
@@ -211,12 +218,16 @@ def run_plink(request: PlinkRequest) -> PlinkResponse:
     if completed.stderr.strip():
         warnings.extend(line.strip() for line in completed.stderr.splitlines() if line.strip())
 
-    log_path = output_base.with_suffix(".log")
-    freq_path = output_base.with_suffix(".afreq")
-    missing_path = output_base.with_suffix(".smiss")
-    hardy_path = output_base.with_suffix(".hardy")
-    score_output_path = output_base.with_suffix(".sscore")
+    log_path = Path(f"{output_base}.log")
+    freq_path = Path(f"{output_base}.afreq")
+    missing_path = Path(f"{output_base}.smiss")
+    hardy_path = Path(f"{output_base}.hardy")
+    score_output_path = Path(f"{output_base}.sscore")
     score_rows, score_mean, score_min, score_max = _parse_score_rows(score_output_path)
+
+    parsed_sample_count = _extract_count_from_log(log_path, "samples (")
+    if parsed_sample_count is None and score_rows:
+        parsed_sample_count = len(score_rows)
 
     return PlinkResponse(
         tool="plink2-qc" if request.mode == "qc" else "plink2-score",
@@ -231,7 +242,7 @@ def run_plink(request: PlinkRequest) -> PlinkResponse:
         score_file_path=str(score_path) if score_path else None,
         score_output_path=str(score_output_path) if score_output_path.exists() else None,
         variant_count=_extract_count_from_log(log_path, "variants loaded from"),
-        sample_count=_extract_count_from_log(log_path, "samples ("),
+        sample_count=parsed_sample_count,
         freq_rows=_parse_freq_rows(freq_path, request.freq_limit),
         missing_rows=_parse_missing_rows(missing_path, request.missing_limit),
         hardy_rows=_parse_hardy_rows(hardy_path, request.hardy_limit),

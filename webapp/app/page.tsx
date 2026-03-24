@@ -402,6 +402,8 @@ type SourceReadyResponse = {
   file_kind?: string | null;
 };
 
+type SessionMode = "prs" | "vcf_analysis" | "raw_sequence";
+
 type PrsPrepResponse = {
   analysis_id: string;
   source_stats_path: string;
@@ -943,6 +945,12 @@ export default function Page() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | null>(null);
   const [activeSource, setActiveSource] = useState<SourceReadyResponse | null>(null);
+  const [sessionMode, setSessionMode] = useState<SessionMode | null>(null);
+  const [pendingUploadRole, setPendingUploadRole] = useState<"default" | "prs_summary" | "prs_target">("default");
+  const [prsSummaryFile, setPrsSummaryFile] = useState<File | null>(null);
+  const [prsTargetFile, setPrsTargetFile] = useState<File | null>(null);
+  const [prsSummarySource, setPrsSummarySource] = useState<SourceReadyResponse | null>(null);
+  const [prsTargetSource, setPrsTargetSource] = useState<SourceReadyResponse | null>(null);
   const [directLiftoverResult, setDirectLiftoverResult] = useState<AnalysisResponse["liftover_result"] | null>(null);
   const [directSamtoolsResult, setDirectSamtoolsResult] = useState<RawQcResponse["samtools_result"] | null>(null);
   const [directPlinkResult, setDirectPlinkResult] = useState<AnalysisResponse["plink_result"] | null>(null);
@@ -989,9 +997,19 @@ export default function Page() {
   const availableWorkflows = useMemo(() => {
     const registry = workflowRegistry.length ? workflowRegistry : DEFAULT_WORKFLOW_REGISTRY;
     const sourceType =
-      analysis ? "vcf" : rawQcAnalysis ? "raw_qc" : summaryStatsAnalysis ? "summary_stats" : attachedSourceType;
+      sessionMode === "prs"
+        ? "summary_stats"
+        : analysis
+          ? "vcf"
+          : rawQcAnalysis
+            ? "raw_qc"
+            : summaryStatsAnalysis
+              ? "summary_stats"
+              : attachedSourceType;
     return sourceType ? registry.filter((item) => item.source_type === sourceType) : registry;
-  }, [workflowRegistry, analysis, rawQcAnalysis, summaryStatsAnalysis, attachedSourceType]);
+  }, [workflowRegistry, analysis, rawQcAnalysis, summaryStatsAnalysis, attachedSourceType, sessionMode]);
+
+  const hasAttachedSource = Boolean(attachedFile || prsSummaryFile || prsTargetFile);
 
   function displayToolAlias(toolName: string) {
     const normalized = toolName.toLowerCase();
@@ -1175,7 +1193,8 @@ export default function Page() {
     });
   }
 
-  function handleAttachClick() {
+  function handleAttachClick(role: "default" | "prs_summary" | "prs_target" = "default") {
+    setPendingUploadRole(role);
     fileInputRef.current?.click();
   }
 
@@ -1217,6 +1236,53 @@ export default function Page() {
     return lines.join("\n");
   }
 
+  function modeHelpText() {
+    return [
+      "**Available modes**",
+      "",
+      "- `@mode prs`: polygenic risk score workflow with two inputs (`summary statistics` and `target genotype VCF`).",
+      "- `@mode vcf_analysis`: variant interpretation workflow with one VCF source.",
+      "- `@mode raw_sequence`: raw sequencing QC workflow with one FASTQ/BAM/SAM source.",
+    ].join("\n");
+  }
+
+  function modeSelectionText(mode: SessionMode) {
+    if (mode === "prs") {
+      return [
+        "**PRS mode**",
+        "",
+        "This session expects two sources:",
+        "- `Summary statistics` for PRS preparation",
+        "- `Target genotype VCF` for PLINK scoring",
+        "",
+        "Next steps:",
+        "- Upload the summary-statistics file into the `Summary stats` slot",
+        "- Upload the target genotype VCF into the `Target genotype` slot",
+        "- Then run `@skill prs_prep` and `@plink score`",
+      ].join("\n");
+    }
+    if (mode === "vcf_analysis") {
+      return [
+        "**VCF analysis mode**",
+        "",
+        "This session expects one VCF source for variant interpretation.",
+        "",
+        "Next steps:",
+        "- Upload one VCF file",
+        "- Run `@skill representative_vcf_review`",
+      ].join("\n");
+    }
+    return [
+      "**Raw sequencing mode**",
+      "",
+      "This session expects one FASTQ/BAM/SAM source for raw sequencing QC.",
+      "",
+      "Next steps:",
+      "- Upload one raw sequencing file",
+      "- Run `@skill raw_qc_review`",
+    ].join("\n");
+  }
+
   async function uploadActiveSource(file: File): Promise<SourceReadyResponse> {
     const formData = new FormData();
     formData.append("file", file);
@@ -1236,6 +1302,14 @@ export default function Page() {
       return;
     }
     const hadPreparedPrsScoreFile = Boolean(latestPrsPrepResult?.score_file_ready);
+    const slotRole =
+      sessionMode === "prs"
+        ? pendingUploadRole !== "default"
+          ? pendingUploadRole
+          : isSummaryStatsFileName(file.name) && !isVcfFileName(file.name)
+            ? "prs_summary"
+            : "prs_target"
+        : "default";
     const guessedSourceType =
       isRawQcFileName(file.name)
         ? "raw_qc"
@@ -1245,7 +1319,18 @@ export default function Page() {
     setAttachedFile(file);
     setAttachedSourceType(guessedSourceType);
     setActiveSource(null);
-    if (guessedSourceType === "vcf") {
+    if (sessionMode === "prs" && slotRole === "prs_summary") {
+      setSummaryStatsAnalysis(null);
+      setDirectQqmanResult(null);
+      setDirectPrsPrepResult(null);
+      setLatestPrsPrepResult(null);
+    } else if (sessionMode === "prs" && slotRole === "prs_target") {
+      setAnalysis(null);
+      setDirectLiftoverResult(null);
+      setDirectPlinkResult(null);
+      setDirectSnpeffResult(null);
+      setDirectLdblockshowResult(null);
+    } else if (guessedSourceType === "vcf") {
       setAnalysis(null);
       setDirectLiftoverResult(null);
       setDirectPlinkResult(null);
@@ -1269,6 +1354,20 @@ export default function Page() {
     try {
       const source = await uploadActiveSource(file);
       setActiveSource(source);
+      if (sessionMode === "prs") {
+        if (slotRole === "prs_summary") {
+          setPrsSummaryFile(file);
+          setPrsSummarySource(source);
+        } else {
+          setPrsTargetFile(file);
+          setPrsTargetSource(source);
+        }
+      } else {
+        setPrsSummaryFile(null);
+        setPrsSummarySource(null);
+        setPrsTargetFile(null);
+        setPrsTargetSource(null);
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
       setError(message);
@@ -1278,6 +1377,22 @@ export default function Page() {
         content: `소스 업로드 중 오류가 발생했습니다: ${message}`,
       });
       event.target.value = "";
+      setPendingUploadRole("default");
+      return;
+    }
+    if (sessionMode === "prs") {
+      setStatus(slotRole === "prs_summary" ? "PRS summary-statistics source ready" : "PRS target genotype source ready");
+      addMessage({
+        role: "assistant",
+        content:
+          slotRole === "prs_summary"
+            ? `Summary statistics source \`${file.name}\` is loaded into the PRS session. Upload a target genotype VCF into the second slot, then run \`@skill prs_prep\`.`
+            : hadPreparedPrsScoreFile
+              ? `Target genotype VCF source \`${file.name}\` is loaded into the PRS session. You can run \`@plink score\` now.`
+              : `Target genotype VCF source \`${file.name}\` is loaded into the PRS session. Prepare the summary-statistics source with \`@skill prs_prep\`, then run \`@plink score\`.`,
+      });
+      event.target.value = "";
+      setPendingUploadRole("default");
       return;
     }
     if (guessedSourceType === "raw_qc") {
@@ -1302,6 +1417,7 @@ export default function Page() {
       });
     }
     event.target.value = "";
+    setPendingUploadRole("default");
   }
 
   function parseInlineOptions(text: string) {
@@ -1317,7 +1433,15 @@ export default function Page() {
   }
 
   async function runPreAnalysisTool(alias: string, remainder: string) {
-    if (!activeSource) {
+    const preAnalysisSource =
+      sessionMode === "prs"
+        ? alias === "plink" && (remainder.trim().toLowerCase() === "score" || parseInlineOptions(remainder).mode?.toLowerCase() === "score")
+          ? prsTargetSource
+          : alias === "qqman" || alias === "plink"
+            ? prsSummarySource ?? activeSource
+            : prsTargetSource ?? activeSource
+        : activeSource;
+    if (!preAnalysisSource) {
       addMessage({
         role: "assistant",
         content: "먼저 active source가 준비되어야 합니다. 파일을 다시 업로드해 주세요.",
@@ -1326,12 +1450,12 @@ export default function Page() {
     }
     const options = parseInlineOptions(remainder);
 
-    if (alias === "liftover" && activeSource.source_type === "vcf") {
+    if (alias === "liftover" && preAnalysisSource.source_type === "vcf") {
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/liftover/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vcf_path: activeSource.source_path,
+          vcf_path: preAnalysisSource.source_path,
           chain_file: DEFAULT_LIFTOVER_CHAIN,
           target_reference_fasta: DEFAULT_LIFTOVER_TARGET_FASTA,
           target_build: options.target || "hg38",
@@ -1356,13 +1480,13 @@ export default function Page() {
       return;
     }
 
-    if (alias === "samtools" && activeSource.source_type === "raw_qc") {
+    if (alias === "samtools" && preAnalysisSource.source_type === "raw_qc") {
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/samtools/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          raw_path: activeSource.source_path,
-          original_name: activeSource.file_name,
+          raw_path: preAnalysisSource.source_path,
+          original_name: preAnalysisSource.file_name,
         }),
       });
       if (!response.ok) {
@@ -1374,7 +1498,7 @@ export default function Page() {
       addMessage({
         role: "assistant",
         content:
-          `samtools reviewed the active source \`${activeSource.file_name}\`.\n\n` +
+          `samtools reviewed the active source \`${preAnalysisSource.file_name}\`.\n\n` +
           `- Quickcheck: ${payload?.quickcheck_ok ? "PASS" : "issue detected"}\n` +
           `- Total reads: ${payload?.total_reads ?? "unknown"}\n` +
           `- Mapped reads: ${payload?.mapped_reads ?? "unknown"}${
@@ -1389,7 +1513,7 @@ export default function Page() {
       (remainder.trim().toLowerCase() === "score" ||
         options.mode?.toLowerCase() === "score");
 
-    if (alias === "plink" && activeSource.source_type === "summary_stats" && wantsPlinkScore) {
+    if (alias === "plink" && preAnalysisSource.source_type === "summary_stats" && wantsPlinkScore) {
       addMessage({
         role: "assistant",
         content:
@@ -1401,7 +1525,7 @@ export default function Page() {
       return;
     }
 
-    if (alias === "plink" && activeSource.source_type === "vcf") {
+    if (alias === "plink" && preAnalysisSource.source_type === "vcf") {
       if (wantsPlinkScore && !latestPrsPrepResult?.score_file_ready) {
         addMessage({
           role: "assistant",
@@ -1417,10 +1541,10 @@ export default function Page() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vcf_path: activeSource.source_path,
+          vcf_path: preAnalysisSource.source_path,
           mode: wantsPlinkScore ? "score" : "qc",
           score_file_path: wantsPlinkScore ? latestPrsPrepResult?.score_file_path : undefined,
-          output_prefix: `${activeSource.file_name}-plink`,
+          output_prefix: `${preAnalysisSource.file_name}-plink`,
           allow_extra_chr: true,
           freq_limit: wantsPlinkScore ? 0 : 12,
           missing_limit: wantsPlinkScore ? 0 : 12,
@@ -1449,12 +1573,12 @@ export default function Page() {
       return;
     }
 
-    if (alias === "snpeff" && activeSource.source_type === "vcf") {
+    if (alias === "snpeff" && preAnalysisSource.source_type === "vcf") {
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/snpeff/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vcf_path: activeSource.source_path,
+          vcf_path: preAnalysisSource.source_path,
           genome: options.genome || "GRCh37.75",
         }),
       });
@@ -1475,7 +1599,7 @@ export default function Page() {
       return;
     }
 
-    if (alias === "ldblockshow" && activeSource.source_type === "vcf") {
+    if (alias === "ldblockshow" && preAnalysisSource.source_type === "vcf") {
       if (!options.region) {
         addMessage({
           role: "assistant",
@@ -1487,7 +1611,7 @@ export default function Page() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          vcf_path: activeSource.source_path,
+          vcf_path: preAnalysisSource.source_path,
           region: options.region,
         }),
       });
@@ -1508,13 +1632,13 @@ export default function Page() {
       return;
     }
 
-    if (alias === "qqman" && activeSource.source_type === "summary_stats") {
+    if (alias === "qqman" && preAnalysisSource.source_type === "summary_stats") {
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/qqman/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          association_path: activeSource.source_path,
-          output_prefix: options.output_prefix || `${activeSource.file_name}-qqman`,
+          association_path: preAnalysisSource.source_path,
+          output_prefix: options.output_prefix || `${preAnalysisSource.file_name}-qqman`,
         }),
       });
       if (!response.ok) {
@@ -1538,7 +1662,7 @@ export default function Page() {
       role: "assistant",
       content:
         `\`@${alias}\` is not compatible with the current active source.` +
-        (activeSource ? ` Current source type: \`${activeSource.source_type}\`.` : ""),
+        (preAnalysisSource ? ` Current source type: \`${preAnalysisSource.source_type}\`.` : ""),
     });
   }
 
@@ -1633,7 +1757,7 @@ export default function Page() {
   }
 
   async function handleStartPrsPrepFromSource(sourceOverride?: SourceReadyResponse | null): Promise<PrsPrepResponse | null> {
-    const source = sourceOverride ?? activeSource;
+    const source = sourceOverride ?? prsSummarySource ?? activeSource;
     if (!source || source.source_type !== "summary_stats") {
       setError("PRS prep requires an active summary-statistics source.");
       return null;
@@ -1795,11 +1919,42 @@ export default function Page() {
       return;
     }
 
-    if (!attachedFile) {
+    const modeMatch = text.match(/^@mode(?:\s+(.*))?$/i);
+    if (modeMatch) {
+      addMessage({ role: "user", content: text });
+      setComposerText("");
+      const remainder = (modeMatch[1] ?? "").trim().toLowerCase();
+      if (!remainder || remainder === "help") {
+        addMessage({ role: "assistant", content: modeHelpText() });
+        return;
+      }
+      if (remainder === "prs") {
+        setSessionMode("prs");
+        setStatus("PRS mode selected");
+        addMessage({ role: "assistant", content: modeSelectionText("prs") });
+        return;
+      }
+      if (remainder === "vcf_analysis") {
+        setSessionMode("vcf_analysis");
+        setStatus("VCF analysis mode selected");
+        addMessage({ role: "assistant", content: modeSelectionText("vcf_analysis") });
+        return;
+      }
+      if (remainder === "raw_sequence") {
+        setSessionMode("raw_sequence");
+        setStatus("Raw sequencing mode selected");
+        addMessage({ role: "assistant", content: modeSelectionText("raw_sequence") });
+        return;
+      }
+      addMessage({ role: "assistant", content: `\`@mode ${remainder}\` is not available. Use \`@mode help\`.` });
+      return;
+    }
+
+    if (!hasAttachedSource) {
       addMessage({ role: "user", content: text });
       addMessage({
         role: "assistant",
-        content: "먼저 + 버튼으로 VCF 파일을 첨부해 주세요.",
+        content: sessionMode ? "먼저 현재 mode에 필요한 source 파일을 업로드해 주세요." : "먼저 `@mode prs`, `@mode vcf_analysis`, 또는 `@mode raw_sequence`를 선택한 뒤 source 파일을 업로드해 주세요.",
       });
       setComposerText("");
       return;
@@ -1820,6 +1975,9 @@ export default function Page() {
         }
 
         const workflowName = remainder.split(/\s+/)[0];
+        const selectedVcfFile = sessionMode === "vcf_analysis" ? attachedFile : attachedFile;
+        const selectedRawQcFile = attachedFile;
+        const selectedSummaryStatsFile = sessionMode === "prs" ? prsSummaryFile : attachedFile;
         if (/\shelp$/i.test(remainder)) {
           addMessage({
             role: "assistant",
@@ -1827,20 +1985,32 @@ export default function Page() {
           });
           return;
         }
-        if (workflowName === "representative_vcf_review" && attachedSourceType === "vcf") {
-          await handleStartAnalysis("representative", annotationLimit, attachedFile);
+        if (workflowName === "representative_vcf_review" && (sessionMode === "vcf_analysis" || attachedSourceType === "vcf")) {
+          if (!selectedVcfFile) {
+            addMessage({ role: "assistant", content: "Upload a VCF source first." });
+            return;
+          }
+          await handleStartAnalysis("representative", annotationLimit, selectedVcfFile);
           return;
         }
-        if (workflowName === "raw_qc_review" && attachedSourceType === "raw_qc") {
-          await handleStartRawQc(attachedFile);
+        if (workflowName === "raw_qc_review" && (sessionMode === "raw_sequence" || attachedSourceType === "raw_qc")) {
+          if (!selectedRawQcFile) {
+            addMessage({ role: "assistant", content: "Upload a raw sequencing source first." });
+            return;
+          }
+          await handleStartRawQc(selectedRawQcFile);
           return;
         }
-        if (workflowName === "summary_stats_review" && attachedSourceType === "summary_stats") {
-          await handleStartSummaryStats(attachedFile);
+        if (workflowName === "summary_stats_review" && (sessionMode === null ? attachedSourceType === "summary_stats" : sessionMode === "prs")) {
+          if (!selectedSummaryStatsFile) {
+            addMessage({ role: "assistant", content: "Upload a summary-statistics source first." });
+            return;
+          }
+          await handleStartSummaryStats(selectedSummaryStatsFile);
           return;
         }
-        if (workflowName === "prs_prep" && attachedSourceType === "summary_stats") {
-          await handleStartPrsPrepFromSource(activeSource);
+        if (workflowName === "prs_prep" && (sessionMode === "prs" || attachedSourceType === "summary_stats")) {
+          await handleStartPrsPrepFromSource(prsSummarySource ?? activeSource);
           return;
         }
 
@@ -1896,7 +2066,9 @@ export default function Page() {
       addMessage({
         role: "assistant",
         content:
-          "A source is loaded, but no workflow is running yet. Use `@skill help` to see available workflows, then run one such as `@skill representative_vcf_review`.",
+          sessionMode === "prs"
+            ? "PRS mode is active. Upload the summary-statistics and target-genotype sources as needed, then use `@skill prs_prep` and `@plink score`."
+            : "A source is loaded, but no workflow is running yet. Use `@skill help` to see available workflows, then run one such as `@skill representative_vcf_review`.",
       });
       return;
     }
@@ -1922,7 +2094,7 @@ export default function Page() {
     addMessage({ role: "user", content: text });
     addMessage({
       role: "assistant",
-      content: "먼저 VCF 또는 raw sequencing file을 첨부해 주세요.",
+      content: "먼저 mode를 정하고 필요한 source를 업로드해 주세요.",
     });
     setComposerText("");
   }
@@ -2010,7 +2182,13 @@ export default function Page() {
   }
 
   async function handleRunPlink() {
-    const sourceVcfPath = analysis?.source_vcf_path ?? (activeSource?.source_type === "vcf" ? activeSource.source_path : null);
+    const sourceVcfPath =
+      analysis?.source_vcf_path ??
+      (sessionMode === "prs"
+        ? prsTargetSource?.source_path ?? null
+        : activeSource?.source_type === "vcf"
+          ? activeSource.source_path
+          : null);
     if (!sourceVcfPath) {
       setError("현재 분석에는 실행 가능한 source VCF path가 없습니다.");
       return;
@@ -2760,9 +2938,20 @@ export default function Page() {
                   <h3>Sources</h3>
                 </div>
                 <div className="sourceSectionBody">
-                  <button type="button" className="sourceAddButton" onClick={handleAttachClick}>
-                    + Add genomics source
-                  </button>
+                  {sessionMode === "prs" ? (
+                    <div className="resultActionRow">
+                      <button type="button" className="sourceAddButton" onClick={() => handleAttachClick("prs_summary")}>
+                        + Add summary stats
+                      </button>
+                      <button type="button" className="sourceAddButton" onClick={() => handleAttachClick("prs_target")}>
+                        + Add target genotype
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="sourceAddButton" onClick={() => handleAttachClick()}>
+                      + Add genomics source
+                    </button>
+                  )}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -2770,7 +2959,24 @@ export default function Page() {
                     className="hiddenInput"
                   />
                   <div className="sourceList">
-                    {attachedFile ? (
+                    {sessionMode === "prs" ? (
+                      <>
+                        <article className={`sourceItem ${prsSummaryFile ? "sourceItemActive" : ""}`}>
+                          <div>
+                            <strong>{prsSummaryFile?.name ?? "Summary stats slot"}</strong>
+                            <p>{prsSummaryFile ? "PRS summary-statistics source" : "Upload a summary statistics file"}</p>
+                          </div>
+                          <span className="sourceBadge">S</span>
+                        </article>
+                        <article className={`sourceItem ${prsTargetFile ? "sourceItemActive" : ""}`}>
+                          <div>
+                            <strong>{prsTargetFile?.name ?? "Target genotype slot"}</strong>
+                            <p>{prsTargetFile ? "PRS target genotype VCF" : "Upload a target genotype VCF"}</p>
+                          </div>
+                          <span className="sourceBadge">T</span>
+                        </article>
+                      </>
+                    ) : attachedFile ? (
                       <article className="sourceItem sourceItemActive">
                         <div>
                           <strong>{attachedFile.name}</strong>
@@ -2786,7 +2992,7 @@ export default function Page() {
                       </article>
                     ) : (
                       <div className="sourceEmpty">
-                        <p>Attach a VCF, a raw sequencing file such as FASTQ/BAM/SAM, or a summary statistics file to start analysis.</p>
+                        <p>Choose a mode, then attach the required genomics source.</p>
                       </div>
                     )}
                   </div>
@@ -2804,7 +3010,7 @@ export default function Page() {
                   <h3>Tool Registry</h3>
                 </div>
                 <div className="sourceSectionBody">
-                  <div className="toolRegistryDetails">
+                <div className="toolRegistryDetails">
                     <button
                       type="button"
                       className="toolRegistrySummary"
@@ -2889,8 +3095,8 @@ export default function Page() {
                 ))
               ) : (
                 <div className="chatEmptyState">
-                  <h3>Start with one genomics source</h3>
-                  <p>Upload a VCF, a raw sequencing file, or a summary statistics file on the left, then continue the workflow in this chat.</p>
+                  <h3>Select a mode first</h3>
+                  <p>Use <code>@mode prs</code>, <code>@mode vcf_analysis</code>, or <code>@mode raw_sequence</code>, then upload the required source files on the left.</p>
                 </div>
               )}
             </div>
@@ -2903,9 +3109,11 @@ export default function Page() {
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
                 placeholder={
-                  attachedFile
+                  hasAttachedSource
                     ? "Start typing a follow-up question..."
-                    : "Upload a VCF, raw sequencing file, or summary statistics file first"
+                    : sessionMode
+                      ? "Upload the required source files for the selected mode"
+                      : "Use @mode prs, @mode vcf_analysis, or @mode raw_sequence first"
                 }
                 onKeyDown={(event) => {
                   if (isComposing || event.nativeEvent.isComposing) {
