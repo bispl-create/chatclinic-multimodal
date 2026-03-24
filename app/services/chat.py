@@ -784,6 +784,30 @@ def _handle_liftover_request(payload: AnalysisChatRequest, *, remainder: str = "
     )
 
 
+def _dispatch_analysis_liftover(payload: AnalysisChatRequest, tool_request: dict[str, object]) -> AnalysisChatResponse:
+    return _handle_liftover_request(payload, remainder=str(tool_request.get("remainder") or ""))
+
+
+def _dispatch_analysis_snpeff(payload: AnalysisChatRequest, tool_request: dict[str, object]) -> AnalysisChatResponse:
+    return _handle_snpeff_request(payload)
+
+
+def _dispatch_analysis_plink(payload: AnalysisChatRequest, tool_request: dict[str, object]) -> AnalysisChatResponse:
+    return _handle_plink_request(payload)
+
+
+def _dispatch_analysis_ldblockshow(payload: AnalysisChatRequest, tool_request: dict[str, object]) -> AnalysisChatResponse:
+    return _handle_ldblockshow_request(payload)
+
+
+ANALYSIS_TOOL_DISPATCH: dict[str, Any] = {
+    "gatk_liftover_vcf_tool": _dispatch_analysis_liftover,
+    "plink_execution_tool": _dispatch_analysis_plink,
+    "snpeff_execution_tool": _dispatch_analysis_snpeff,
+    "ldblockshow_execution_tool": _dispatch_analysis_ldblockshow,
+}
+
+
 def _handle_analysis_at_tool_request(payload: AnalysisChatRequest, tool_request: dict[str, object]) -> AnalysisChatResponse | None:
     manifest = tool_request.get("manifest")
     alias = str(tool_request.get("alias") or "")
@@ -801,14 +825,9 @@ def _handle_analysis_at_tool_request(payload: AnalysisChatRequest, tool_request:
             used_fallback=False,
         )
     name = str(manifest.get("name") or "")
-    if name == "gatk_liftover_vcf_tool":
-        return _handle_liftover_request(payload, remainder=remainder)
-    if name == "plink_execution_tool":
-        return _handle_plink_request(payload)
-    if name == "snpeff_execution_tool":
-        return _handle_snpeff_request(payload)
-    if name == "ldblockshow_execution_tool":
-        return _handle_ldblockshow_request(payload)
+    dispatch = ANALYSIS_TOOL_DISPATCH.get(name)
+    if dispatch is not None:
+        return dispatch(payload, tool_request)
     return None
 
 
@@ -855,24 +874,7 @@ def _handle_analysis_skill_request(payload: AnalysisChatRequest, skill_request: 
     )
 
 
-def _handle_raw_qc_at_tool_request(payload: RawQcChatRequest, tool_request: dict[str, object]) -> RawQcChatResponse:
-    manifest = tool_request.get("manifest")
-    alias = str(tool_request.get("alias") or "")
-    help_text = _resolve_tool_help_response(tool_request)
-    if help_text is not None:
-        return RawQcChatResponse(answer=help_text, citations=[], used_fallback=False)
-    mismatch_text = _resolve_tool_source_mismatch_response(tool_request, "raw_qc")
-    if mismatch_text is not None:
-        return RawQcChatResponse(answer=mismatch_text, citations=[], used_fallback=False)
-    if manifest is None:
-        return RawQcChatResponse(
-            answer=f"`@{alias}` is not a registered ChatGenome tool.",
-            citations=[],
-            used_fallback=False,
-        )
-    name = str(manifest.get("name") or "")
-    if name != "samtools_execution_tool":
-        return RawQcChatResponse(answer=f"`@{alias}` is not a registered ChatGenome tool.", citations=[], used_fallback=False)
+def _dispatch_raw_qc_samtools(payload: RawQcChatRequest, tool_request: dict[str, object]) -> RawQcChatResponse:
     alignment_kind = (payload.analysis.facts.file_kind or "").upper()
     if alignment_kind not in {"BAM", "SAM", "CRAM", "ALIGNMENT"}:
         return RawQcChatResponse(
@@ -920,6 +922,33 @@ def _handle_raw_qc_at_tool_request(payload: RawQcChatRequest, tool_request: dict
         used_fallback=False,
         samtools_result=result,
     )
+
+
+RAW_QC_TOOL_DISPATCH: dict[str, Any] = {
+    "samtools_execution_tool": _dispatch_raw_qc_samtools,
+}
+
+
+def _handle_raw_qc_at_tool_request(payload: RawQcChatRequest, tool_request: dict[str, object]) -> RawQcChatResponse:
+    manifest = tool_request.get("manifest")
+    alias = str(tool_request.get("alias") or "")
+    help_text = _resolve_tool_help_response(tool_request)
+    if help_text is not None:
+        return RawQcChatResponse(answer=help_text, citations=[], used_fallback=False)
+    mismatch_text = _resolve_tool_source_mismatch_response(tool_request, "raw_qc")
+    if mismatch_text is not None:
+        return RawQcChatResponse(answer=mismatch_text, citations=[], used_fallback=False)
+    if manifest is None:
+        return RawQcChatResponse(
+            answer=f"`@{alias}` is not a registered ChatGenome tool.",
+            citations=[],
+            used_fallback=False,
+        )
+    name = str(manifest.get("name") or "")
+    dispatch = RAW_QC_TOOL_DISPATCH.get(name)
+    if dispatch is not None:
+        return dispatch(payload, tool_request)
+    return RawQcChatResponse(answer=f"`@{alias}` is not a registered ChatGenome tool.", citations=[], used_fallback=False)
 
 
 def _handle_raw_qc_skill_request(payload: RawQcChatRequest, skill_request: dict[str, object]) -> RawQcChatResponse:
@@ -971,7 +1000,6 @@ def _handle_summary_stats_at_tool_request(
 ) -> SummaryStatsChatResponse:
     manifest = tool_request.get("manifest")
     alias = str(tool_request.get("alias") or "")
-    remainder = str(tool_request.get("remainder") or "")
     help_text = _resolve_tool_help_response(tool_request)
     if help_text is not None:
         return SummaryStatsChatResponse(answer=help_text, citations=[], used_fallback=False)
@@ -986,9 +1014,16 @@ def _handle_summary_stats_at_tool_request(
         )
 
     name = str(manifest.get("name") or "")
-    if name != "qqman_execution_tool":
-        return SummaryStatsChatResponse(answer=f"`@{alias}` is not a registered ChatGenome tool.", citations=[], used_fallback=False)
+    dispatch = SUMMARY_STATS_TOOL_DISPATCH.get(name)
+    if dispatch is not None:
+        return dispatch(payload, tool_request)
+    return SummaryStatsChatResponse(answer=f"`@{alias}` is not a registered ChatGenome tool.", citations=[], used_fallback=False)
 
+
+def _dispatch_summary_stats_qqman(
+    payload: SummaryStatsChatRequest, tool_request: dict[str, object]
+) -> SummaryStatsChatResponse:
+    remainder = str(tool_request.get("remainder") or "")
     source_stats_path = payload.analysis.source_stats_path
     if not source_stats_path:
         return SummaryStatsChatResponse(
@@ -1016,6 +1051,11 @@ def _handle_summary_stats_at_tool_request(
         requested_view="qqman",
         qqman_result=result,
     )
+
+
+SUMMARY_STATS_TOOL_DISPATCH: dict[str, Any] = {
+    "qqman_execution_tool": _dispatch_summary_stats_qqman,
+}
 
 
 def _handle_snpeff_request(payload: AnalysisChatRequest) -> AnalysisChatResponse:
