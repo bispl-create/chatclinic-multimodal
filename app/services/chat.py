@@ -401,6 +401,84 @@ def _resolve_tool_source_mismatch_response(
     )
 
 
+def _with_result_field(result_kind: str | None, result: object, **kwargs: Any) -> dict[str, Any]:
+    payload = dict(kwargs)
+    if result_kind and result is not None:
+        payload[result_kind] = result
+    return payload
+
+
+def _analysis_tool_response(
+    answer: str,
+    *,
+    result_kind: str | None = None,
+    result: object = None,
+    citations: list[str] | None = None,
+    used_fallback: bool = False,
+    used_tools: list[str] | None = None,
+    requested_view: str | None = None,
+    analysis: object = None,
+) -> AnalysisChatResponse:
+    return AnalysisChatResponse(
+        **_with_result_field(
+            result_kind,
+            result,
+            answer=answer,
+            citations=citations or [],
+            used_fallback=used_fallback,
+            used_tools=used_tools or [],
+            requested_view=requested_view,
+            analysis=analysis,
+        )
+    )
+
+
+def _raw_qc_tool_response(
+    answer: str,
+    *,
+    result_kind: str | None = None,
+    result: object = None,
+    citations: list[str] | None = None,
+    used_fallback: bool = False,
+    requested_view: str | None = None,
+    analysis: object = None,
+) -> RawQcChatResponse:
+    return RawQcChatResponse(
+        **_with_result_field(
+            result_kind,
+            result,
+            answer=answer,
+            citations=citations or [],
+            used_fallback=used_fallback,
+            requested_view=requested_view,
+            analysis=analysis,
+        )
+    )
+
+
+def _summary_stats_tool_response(
+    answer: str,
+    *,
+    result_kind: str | None = None,
+    result: object = None,
+    citations: list[str] | None = None,
+    used_fallback: bool = False,
+    requested_view: str | None = None,
+    analysis: object = None,
+) -> SummaryStatsChatResponse:
+    return SummaryStatsChatResponse(
+        **_with_result_field(
+            result_kind,
+            result,
+            answer=answer,
+            citations=citations or [],
+            used_fallback=used_fallback,
+            requested_view=requested_view,
+            analysis=analysis,
+        )
+    )
+
+
 def _render_skill_help(source_type: str | None = None, selected: dict[str, object] | None = None) -> str:
     manifests = _load_workflow_manifests()
     if source_type:
@@ -724,9 +802,8 @@ def _extract_key_value_options(text: str) -> dict[str, str]:
 def _handle_liftover_request(payload: AnalysisChatRequest, *, remainder: str = "") -> AnalysisChatResponse:
     source_vcf_path = payload.analysis.source_vcf_path
     if not source_vcf_path:
-        return AnalysisChatResponse(
-            answer="The current analysis context does not include a source VCF path, so liftover cannot be run from this chat turn.",
-            citations=[],
+        return _analysis_tool_response(
+            "The current analysis context does not include a source VCF path, so liftover cannot be run from this chat turn.",
             used_fallback=True,
             used_tools=["gatk_liftover_vcf_tool"],
         )
@@ -740,8 +817,8 @@ def _handle_liftover_request(payload: AnalysisChatRequest, *, remainder: str = "
     output_prefix = options.get("output_prefix") or f"{payload.analysis.analysis_id}-liftover-{target_label}"
     existing = payload.analysis.liftover_result
     if existing is not None and (existing.target_build or "").lower() == target_build.lower():
-        return AnalysisChatResponse(
-            answer=(
+        return _analysis_tool_response(
+            (
                 f"Liftover results are already available for the current VCF.\n\n"
                 f"- Source build: `{existing.source_build or 'unknown'}`\n"
                 f"- Target build: `{existing.target_build or target_build}`\n"
@@ -749,10 +826,9 @@ def _handle_liftover_request(payload: AnalysisChatRequest, *, remainder: str = "
                 f"- Reject VCF: `{existing.reject_path}`\n\n"
                 "The existing LiftOver Review card has been reused instead of rerunning the tool."
             ),
-            citations=[],
-            used_fallback=False,
+            result_kind="liftover_result",
+            result=existing,
             used_tools=["gatk_liftover_vcf_tool"],
-            liftover_result=existing,
         )
 
     result = run_gatk_liftover_vcf(
@@ -766,8 +842,8 @@ def _handle_liftover_request(payload: AnalysisChatRequest, *, remainder: str = "
             parse_limit=8,
         )
     )
-    return AnalysisChatResponse(
-        answer=(
+    return _analysis_tool_response(
+        (
             f"GATK LiftoverVcf was run for the current VCF.\n\n"
             f"- Source build: `{result.source_build or 'unknown'}`\n"
             f"- Target build: `{result.target_build or target_build}`\n"
@@ -777,10 +853,9 @@ def _handle_liftover_request(payload: AnalysisChatRequest, *, remainder: str = "
             f"- Reject VCF: `{result.reject_path}`\n\n"
             "The Studio card has been updated with the latest liftover result."
         ),
-        citations=[],
-        used_fallback=False,
+        result_kind="liftover_result",
+        result=result,
         used_tools=["gatk_liftover_vcf_tool"],
-        liftover_result=result,
     )
 
 
@@ -877,20 +952,16 @@ def _handle_analysis_skill_request(payload: AnalysisChatRequest, skill_request: 
 def _dispatch_raw_qc_samtools(payload: RawQcChatRequest, tool_request: dict[str, object]) -> RawQcChatResponse:
     alignment_kind = (payload.analysis.facts.file_kind or "").upper()
     if alignment_kind not in {"BAM", "SAM", "CRAM", "ALIGNMENT"}:
-        return RawQcChatResponse(
-            answer=(
+        return _raw_qc_tool_response(
+            (
                 "samtools is intended for alignment files such as BAM, SAM, or CRAM. "
                 f"The current active source is `{payload.analysis.facts.file_name}` ({payload.analysis.facts.file_kind})."
             ),
-            citations=[],
-            used_fallback=False,
         )
     raw_path = payload.analysis.source_raw_path
     if not raw_path:
-        return RawQcChatResponse(
-            answer="The active raw-QC session does not include a durable alignment-file path, so `@samtools` cannot run yet.",
-            citations=[],
-            used_fallback=False,
+        return _raw_qc_tool_response(
+            "The active raw-QC session does not include a durable alignment-file path, so `@samtools` cannot run yet."
         )
     result = run_samtools(
         SamtoolsRequest(
@@ -916,12 +987,7 @@ def _dispatch_raw_qc_samtools(payload: RawQcChatRequest, tool_request: dict[str,
     )
     if result.warnings:
         answer += "\n\nWarnings:\n" + "\n".join(f"- {warning}" for warning in result.warnings[:5])
-    return RawQcChatResponse(
-        answer=answer,
-        citations=[],
-        used_fallback=False,
-        samtools_result=result,
-    )
+    return _raw_qc_tool_response(answer, result_kind="samtools_result", result=result)
 
 
 RAW_QC_TOOL_DISPATCH: dict[str, Any] = {
@@ -1026,10 +1092,8 @@ def _dispatch_summary_stats_qqman(
     remainder = str(tool_request.get("remainder") or "")
     source_stats_path = payload.analysis.source_stats_path
     if not source_stats_path:
-        return SummaryStatsChatResponse(
-            answer="The active summary-statistics session does not expose a durable source file path, so `@qqman` cannot run yet.",
-            citations=[],
-            used_fallback=False,
+        return _summary_stats_tool_response(
+            "The active summary-statistics session does not expose a durable source file path, so `@qqman` cannot run yet."
         )
     options = _extract_key_value_options(remainder)
     result = run_qqman_association(
@@ -1038,18 +1102,17 @@ def _dispatch_summary_stats_qqman(
             output_prefix=options.get("output_prefix") or f"{payload.analysis.analysis_id}-qqman",
         )
     )
-    return SummaryStatsChatResponse(
-        answer=(
+    return _summary_stats_tool_response(
+        (
             "qqman plots were generated for the active summary-statistics source.\n\n"
             f"- Output directory: `{result.output_dir}`\n"
             f"- Plot artifacts: {len(result.artifacts)}\n"
             f"- Warnings: {len(result.warnings)}\n\n"
             "The Studio card has been updated with the latest qqman result."
         ),
-        citations=[],
-        used_fallback=False,
+        result_kind="qqman_result",
+        result=result,
         requested_view="qqman",
-        qqman_result=result,
     )
 
 
