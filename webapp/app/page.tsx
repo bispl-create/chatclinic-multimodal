@@ -933,7 +933,7 @@ export default function Page() {
     {
       role: "assistant",
       content:
-        "VCF를 올리면 variant interpretation workflow를 진행하고, FASTQ/BAM/SAM을 올리면 FastQC 기반 raw sequencing QC를 진행합니다. Summary statistics를 올리면 post-GWAS review intake를 시작합니다.",
+        "먼저 세션 모드를 선택하세요. `@mode prs`는 PRS workflow를 시작하고 summary statistics와 target genotype 두 입력을 받습니다. `@mode vcf_analysis`는 VCF variant interpretation용 단일 입력 세션을 시작합니다. `@mode raw_sequence`는 FASTQ/BAM/SAM 기반 raw sequencing QC 세션을 시작합니다. 사용 가능한 모드를 다시 보려면 `@mode help`를 입력하세요.",
     },
   ]);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
@@ -961,7 +961,7 @@ export default function Page() {
   const [latestPrsPrepResult, setLatestPrsPrepResult] = useState<PrsPrepResponse | null>(null);
   const [annotationScope, setAnnotationScope] = useState<"representative" | "all">("representative");
   const [annotationLimit, setAnnotationLimit] = useState("200");
-  const [status, setStatus] = useState("Waiting for a genomics source");
+  const [status, setStatus] = useState("Waiting for a session mode");
   const [error, setError] = useState<string | null>(null);
   const [selectedAnnotationIndex, setSelectedAnnotationIndex] = useState(0);
   const [annotationSearch, setAnnotationSearch] = useState("");
@@ -2992,7 +2992,7 @@ export default function Page() {
                       </article>
                     ) : (
                       <div className="sourceEmpty">
-                        <p>Choose a mode, then attach the required genomics source.</p>
+                        <p>Select a session mode with `@mode prs`, `@mode vcf_analysis`, or `@mode raw_sequence`.</p>
                       </div>
                     )}
                   </div>
