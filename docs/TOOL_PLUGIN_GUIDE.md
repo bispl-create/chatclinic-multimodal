@@ -1,24 +1,13 @@
 # Tool Plugin Guide
 
-This guide explains how a collaborator can add a new tool to `ChatGenome`.
+This guide is the short version of the full developer manual.
 
-The current architecture is:
+For the complete architecture and contribution flow, read:
+- [DEVELOPER_MANUAL.md](DEVELOPER_MANUAL.md)
 
-1. `ChatGenome` receives a VCF and user request.
-2. The orchestrator skill decides which registered tools should run.
-3. The shared runner executes tools from `plugins/`.
-4. Tool output is returned as structured JSON.
-5. `Studio` renders the resulting artifacts and `Chat` explains grounded outputs.
+## Minimal Tool Submission
 
-## What A Collaborator Needs To Submit
-
-Each tool should live in its own folder under:
-
-```text
-plugins/<tool_folder>/
-```
-
-The minimum required files are:
+Each new tool should live under:
 
 ```text
 plugins/<tool_folder>/
@@ -26,273 +15,94 @@ plugins/<tool_folder>/
   run.py
 ```
 
-Optional files:
+## Required Metadata
 
-```text
-plugins/<tool_folder>/
-  README.md
-  requirements.txt
-  assets/
-```
-
-## Required `tool.json`
-
-Each tool must provide a `tool.json` manifest.
-
-Example:
+Your `tool.json` should include:
 
 ```json
 {
-  "name": "example_variant_tool",
-  "description": "Summarizes a variant subset for a specific review task.",
-  "task": "variant-summary",
+  "name": "example_execution_tool",
+  "description": "Short deterministic tool summary.",
+  "task": "example-task",
   "modality": "genomics",
   "approval_required": false,
-  "source": "plugin"
+  "source": "plugin",
+  "aliases": ["example"],
+  "help": {
+    "summary": "What the tool does.",
+    "modes": [],
+    "options": [],
+    "examples": [
+      "@example help",
+      "@example"
+    ],
+    "notes": []
+  }
 }
 ```
 
-Field meanings:
+Use `help` metadata for:
+- `@toolname help`
+- option documentation
+- curated examples
 
-- `name`: unique tool name shown in the registry
-- `description`: short explanation for collaborators and UI tooltips
-- `task`: stable task label such as `vcf-qc`, `annotation`, or `roh-analysis`
-- `modality`: current domain, usually `genomics`
-- `approval_required`: whether chat should ask for approval before execution
-- `source`: use `plugin` for collaborator tools, `internal` for core tools maintained in the app
+## Required Runtime Contract
 
-## Required `run.py`
-
-The shared runner executes:
+`run.py` is expected to support:
 
 ```bash
 python run.py --input <input.json> --output <output.json>
 ```
 
-Your script must:
+The script should:
 
-1. Read the JSON payload from `--input`
-2. Perform deterministic work
-3. Write a JSON result to `--output`
-4. Exit with code `0` on success
-5. Exit non-zero with a meaningful error message on failure
+1. read JSON from `--input`
+2. perform deterministic work
+3. write JSON to `--output`
+4. exit successfully on success
 
-Minimal template:
+## Required Integration Steps
 
-```python
-from __future__ import annotations
+After adding the plugin files, make sure you also:
 
-import argparse
-import json
-import sys
-from pathlib import Path
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
-
-    result = {
-        "tool": "example_variant_tool",
-        "summary": "Explain briefly what the tool did.",
-        "artifacts": {}
-    }
-
-    Path(args.output).write_text(
-        json.dumps(result, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-
-if __name__ == "__main__":
-    main()
-```
-
-## Input Contract
-
-`ChatGenome` tool payloads are plain JSON dictionaries. Different tools receive different keys.
-
-Typical inputs include:
-
-- `vcf_path`
-- `facts`
-- `annotations`
-- `roh_segments`
-- `references`
-- `recommendations`
-- `limit`
-- `scope`
-
-Examples from the current built-in tools:
-
-- `vcf_qc_tool`
-  - input: `vcf_path`, `max_examples`
-- `annotation_tool`
-  - input: `vcf_path`, `facts`, `scope`, `limit`
-- `roh_analysis_tool`
-  - input: `vcf_path`
-- `candidate_ranking_tool`
-  - input: `annotations`, `roh_segments`, `limit`
-
-When adding a new tool, document the expected input keys in the tool's local `README.md` if they are not obvious.
-
-## Output Contract
-
-At minimum, return:
-
-```json
-{
-  "tool": "example_variant_tool",
-  "summary": "What the tool produced."
-}
-```
-
-Depending on the task, a tool may also return:
-
-- `facts`
-- `annotations`
-- `roh_segments`
-- `candidate_variants`
-- `clinvar_summary`
-- `consequence_summary`
-- `clinical_coverage_summary`
-- `filtering_summary`
-- `symbolic_alt_summary`
-- `draft_answer`
-
-The key rule is:
-
-- return structured JSON
-- do not return markdown-only text when a structured shape is possible
-
-## How Registration Works
-
-The registry is discovered automatically from:
-
-```text
-plugins/*/tool.json
-```
-
-You do not need to edit a central list to make the tool discoverable.
-
-Registry code:
-
-- [tool_runner.py](/Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp/app/services/tool_runner.py)
-
-## How To Connect A Tool To The App
-
-There are two parts:
-
-1. Tool execution
-2. UI use
-
-### 1. Tool execution in backend
-
-In most cases, a core maintainer wires the tool into backend analysis flow in:
-
-- [main.py](/Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp/app/main.py)
-
-Pattern:
-
-```python
-try:
-    tool_result = run_tool("example_variant_tool", {...})
-    used_tools.append("example_variant_tool")
-    # parse structured result here
-except Exception:
-    # fallback logic here
-```
-
-### 2. UI rendering
-
-If the tool produces a new structured artifact, `Studio` may need a renderer in:
-
-- [page.tsx](/Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp/webapp/app/page.tsx)
-
-Not every tool needs a brand-new card. Some tools can feed existing cards.
-
-## Recommended Design Rules
-
-- Prefer deterministic outputs over free-form prose
-- Keep input and output small and explicit
-- Reuse existing models when possible
-- Do not embed secrets in tool code
-- Do not assume network access unless explicitly arranged
-- Fail clearly when dependencies are missing
+1. define the request/response shape in
+   - [../app/models.py](../app/models.py)
+2. add execution wiring in backend runtime
+   - usually in [../app/main.py](../app/main.py),
+   - [../app/services/chat.py](../app/services/chat.py), or
+   - [../app/services/workflows.py](../app/services/workflows.py)
+3. add Studio rendering in
+   - [../webapp/app/page.tsx](../webapp/app/page.tsx)
+4. update orchestrator policy in
+   - [../skills/chatgenome-orchestrator/SKILL.md](../skills/chatgenome-orchestrator/SKILL.md)
+   if the tool should be recommended or used in workflows
 
 ## Testing Checklist
 
-Before submitting a tool:
-
-1. Validate the manifest:
+Python syntax:
 
 ```bash
-cat plugins/<tool_folder>/tool.json
+PYTHONPATH=/Users/jongcye/Documents/Codex/.vendor PYTHONPYCACHEPREFIX=/tmp python3 -m py_compile app/main.py app/models.py app/services/*.py plugins/<tool_folder>/run.py
 ```
 
-2. Run the script directly with a sample JSON input
-
-3. Run Python syntax checks:
-
-```bash
-PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m py_compile plugins/<tool_folder>/run.py
-```
-
-4. If backend wiring changed, run:
-
-```bash
-PYTHONPYCACHEPREFIX=/tmp/pycache python3 -m compileall app plugins
-```
-
-5. If frontend rendering changed, run:
+Frontend build:
 
 ```bash
 cd webapp
-PATH=/Users/jongcye/Documents/Codex/.local/node-v22.14.0-darwin-arm64/bin:$PATH npm run build
+PATH=/Users/jongcye/Documents/Codex/.local/node/node-v22.22.1-darwin-arm64/bin:$PATH npm run build:local
 ```
 
-## Suggested Submission Format For Collaborators
+Runtime checks:
+- `@toolname help`
+- direct `@toolname`
+- Studio card rendering
 
-Submit:
+## Preferred Design Rule
 
-- the plugin folder
-- a short `README.md`
-- expected input keys
-- example output JSON
-- notes on required dependencies
+Put:
+- policy in `SKILL.md`
+- workflow ordering in workflow JSON
+- exact tool facts in `tool.json`
+- runtime execution in backend services
 
-Good collaborator handoff example:
-
-```text
-plugins/example_variant_tool/
-  tool.json
-  run.py
-  README.md
-  sample_input.json
-  sample_output.json
-```
-
-## Current Built-In Tools
-
-At the moment, `ChatGenome` includes:
-
-- `vcf_qc_tool`
-- `annotation_tool`
-- `roh_analysis_tool`
-- `candidate_ranking_tool`
-- `clinvar_review_tool`
-- `vep_consequence_tool`
-- `clinical_coverage_tool`
-- `filtering_view_tool`
-- `symbolic_alt_tool`
-- `grounded_summary_tool`
-
-These are good references for new collaborator tools.
+Avoid introducing new keyword-based chat heuristics unless absolutely necessary.

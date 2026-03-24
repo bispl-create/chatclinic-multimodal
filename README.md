@@ -1,31 +1,251 @@
 # ChatGenome
 
-Interactive genomics review workspace for VCF-driven analysis, grounded summaries, Studio cards, and follow-up chat.
+Interactive genomics workspace for mode-driven review sessions, explicit workflow execution, direct tool runs, Studio cards, and grounded chat.
 
 ![ChatGenome workspace preview](docs/chatgenome-ui-preview.svg)
 
-This MVP is a starting point for an OpenEvidence-like genomics assistant:
+## Overview
 
-- upload a `VCF` or `VCF.gz`
-- parse and summarize variants with `pysam`
-- attach citation-ready evidence records
-- propose next analysis steps with a rule-driven engine
-- return a grounded response payload that a chat UI can render
-- run a GPT-backed intake conversation before analysis starts
-- combine backend grounded summaries with Studio-derived review context for the first answer
-- keep IGV and annotation detail available below the summary
+ChatGenome is organized around three explicit trigger families:
 
-## Quick Start For Contributors
+- `@mode ...`
+  Selects the session purpose and configures the source-input UI.
+- `@skill ...`
+  Runs a named multi-step workflow.
+- `@toolname`
+  Runs a single deterministic tool.
+- `$studio ...`
+  Grounds a chat response in the current Studio state.
 
-1. Clone the repository.
-2. Create your local environment file from the template.
-3. Add your own OpenAI API key to `.env`.
-4. Install Python and frontend dependencies.
-5. Start the API and frontend.
+The current architecture is intentionally explicit:
 
-If you are adding a new analysis tool, use the collaborator guide:
+1. Choose a session mode.
+2. Attach the source files required by that mode.
+3. Run workflows with `@skill ...` or tools with `@toolname`.
+4. Review outputs in `Studio`.
+5. Use `$studio` only when you want the chat answer grounded in the current Studio artifacts.
 
-- [TOOL_PLUGIN_GUIDE.md](docs/TOOL_PLUGIN_GUIDE.md)
+This keeps general GPT conversation separate from deterministic genomics execution.
+
+## Current Session Modes
+
+### `@mode prs`
+
+Purpose:
+- post-GWAS PRS preparation and scoring
+
+Expected sources:
+- summary statistics
+- target genotype VCF
+
+Typical sequence:
+- `@mode prs`
+- upload summary statistics
+- upload target genotype VCF
+- `@skill prs_prep`
+- `@plink score`
+
+### `@mode vcf_analysis`
+
+Purpose:
+- single-input variant interpretation on a VCF
+
+Expected source:
+- VCF or VCF.gz
+
+Typical sequence:
+- `@mode vcf_analysis`
+- upload VCF
+- `@skill representative_vcf_review`
+- optional follow-ups such as `@liftover`, `@snpeff`, `@ldblockshow`
+
+### `@mode raw_sequence`
+
+Purpose:
+- raw sequencing or alignment QC
+
+Expected source:
+- FASTQ, BAM, SAM, or CRAM
+
+Typical sequence:
+- `@mode raw_sequence`
+- upload source
+- `@skill raw_qc_review`
+- optional follow-up `@samtools`
+
+Use `@mode help` at any time to reprint the mode list.
+
+## Current Skills
+
+The current orchestrator workflows live in:
+- [skills/chatgenome-orchestrator/workflows](skills/chatgenome-orchestrator/workflows)
+
+Available workflow triggers:
+
+| Trigger | Purpose | Input expectation |
+|---|---|---|
+| `@skill representative_vcf_review` | Default VCF review workflow | Active VCF source |
+| `@skill raw_qc_review` | Default raw-sequencing QC workflow | Active raw source |
+| `@skill summary_stats_review` | Summary-statistics intake and review | Active summary-statistics source |
+| `@skill prs_prep` | Build check, harmonization prep, and PLINK score-file preparation | Summary-statistics source in PRS mode or active summary-statistics source |
+
+Use:
+- `@skill help`
+- `@skill <workflow_name> help`
+
+to inspect the available workflows and their steps.
+
+## Current Tools
+
+### Direct user-facing `@tool` aliases
+
+These are the main explicit tool triggers exposed in the UI.
+
+| Trigger | Purpose | Typical input |
+|---|---|---|
+| `@liftover` | Run GATK LiftoverVcf on the current VCF | VCF |
+| `@samtools` | Alignment/QC review for BAM/SAM/CRAM | raw sequencing or alignment source |
+| `@plink` | PLINK QC or scoring | VCF target genotype |
+| `@snpeff` | Local SnpEff consequence annotation | VCF |
+| `@ldblockshow` | LD block visualization for a locus | VCF plus region |
+| `@qqman` | Manhattan and QQ plot generation | summary statistics |
+
+Each direct tool also supports:
+- `@toolname help`
+
+Example:
+- `@liftover help`
+- `@plink help`
+- `@qqman help`
+
+### Internal plugin inventory
+
+These plugins currently exist under `/plugins`:
+
+| Plugin | Role |
+|---|---|
+| `vcf_qc_tool` | VCF-level QC facts |
+| `annotation_tool` | Core transcript-aware annotation |
+| `roh_analysis_tool` | ROH-oriented review artifacts |
+| `candidate_ranking_tool` | Candidate-variant prioritization |
+| `clinvar_review_tool` | Clinical-significance summaries |
+| `vep_consequence_tool` | Consequence distribution summaries |
+| `clinical_coverage_tool` | Annotation completeness coverage |
+| `filtering_view_tool` | Filtering and triage summaries |
+| `symbolic_alt_tool` | Symbolic ALT review path |
+| `grounded_summary_tool` | Draft grounded narrative summary |
+| `cadd_lookup_tool` | Local CADD enrichment |
+| `revel_lookup_tool` | Local REVEL enrichment |
+| `fastqc_execution_tool` | FastQC execution |
+| `samtools_execution_tool` | Samtools QC/review |
+| `gatk_liftover_vcf_tool` | GATK LiftoverVcf execution |
+| `plink_execution_tool` | PLINK QC and score modes |
+| `snpeff_execution_tool` | Local SnpEff execution |
+| `ldblockshow_execution_tool` | LD block plotting |
+| `qqman_execution_tool` | Manhattan/QQ plotting |
+
+Some of these plugins are used indirectly through workflows; others are exposed directly via `@tool` aliases.
+
+## Trigger Semantics
+
+### `@mode`
+
+`@mode` chooses the session purpose and changes the input UI.
+
+Examples:
+
+```text
+@mode help
+@mode prs
+@mode vcf_analysis
+@mode raw_sequence
+```
+
+Effects:
+- chooses the current session mode
+- changes which source slots are shown
+- changes which workflows are recommended
+- changes how uploads are interpreted
+
+### `@skill`
+
+`@skill` runs a named workflow.
+
+Examples:
+
+```text
+@skill help
+@skill representative_vcf_review
+@skill representative_vcf_review help
+@skill prs_prep
+```
+
+Effects:
+- runs an ordered multi-step workflow
+- updates `Studio`
+- may add grounded workflow summaries to chat
+
+### `@toolname`
+
+`@toolname` runs a single deterministic tool against the current source context.
+
+Examples:
+
+```text
+@liftover target=hg38
+@samtools
+@plink score
+@qqman
+```
+
+Effects:
+- uses the active source or current mode-specific source slot
+- returns a direct result
+- creates or updates the corresponding Studio card
+
+### `$studio`
+
+`$studio` switches chat into grounded mode.
+
+Examples:
+
+```text
+$studio summarize the current candidate card
+$studio explain this PRS Prep Review card
+```
+
+Effects:
+- the answer is generated from current Studio state, not general knowledge
+- use this when you want explanations of current results
+
+Without `$studio`, ChatGenome should answer as a normal GPT assistant.
+
+## PRS Flow
+
+The current PRS MVP is:
+
+1. `@mode prs`
+2. Upload summary statistics
+3. Upload target genotype VCF
+4. `@skill prs_prep`
+   - build check
+   - harmonization prep
+   - PLINK score-file generation
+5. `@plink score`
+6. Review:
+   - `PRS Prep Review`
+   - `PLINK` score review card
+
+For a known-good local smoke test pair:
+
+- summary statistics:
+  - [examples/prs_overlap_sumstats.tsv](examples/prs_overlap_sumstats.tsv)
+- target genotype:
+  - [examples/roh.1.vcf.gz](examples/roh.1.vcf.gz)
+
+## Quick Start
+
+### Environment
 
 ```bash
 git clone https://github.com/bispl-create/chatgenome.git
@@ -33,7 +253,7 @@ cd chatgenome
 cp .env.example .env
 ```
 
-Then edit `.env` and set your own key:
+Set your API key in `.env` if you want GPT-backed behavior:
 
 ```bash
 OPENAI_API_KEY=sk-...
@@ -41,201 +261,70 @@ OPENAI_WORKFLOW_MODEL=gpt-5-nano
 OPENAI_MODEL=gpt-5-mini
 ```
 
-Notes:
+### Install
 
-- keep `.env` local only; it is excluded from git
-- do not commit your personal API key
-- if you do not set `OPENAI_API_KEY`, the app still runs in deterministic fallback mode
-
-## What This Prototype Does
-
-- accepts a local VCF upload through FastAPI
-- summarizes samples, contigs, variant classes, genotype counts, and example variants
-- runs a queue-analysis conversation that asks for annotation scope and range in chat
-- uses `gpt-5-nano` for intake parsing when `OPENAI_API_KEY` is configured
-- uses `gpt-5-mini` for grounded explanation of summary and annotation meaning
-- produces a structured "analysis brief" with:
-  - `facts`
-  - `references`
-  - `recommendations`
-  - `ui_cards`
-- keeps the evidence layer separate from the language model layer
-- shows a 3-column `Sources / Chat / Studio` workspace
-
-## What It Does Not Yet Do
-
-- no full local clinical annotation stack such as VEP CLI, ANNOVAR, or production-scale database mirrors
-- no persistent database
-- no authentication or PHI controls
-- no ACMG classifier
-- can attach live Europe PMC / PubMed-backed literature references when network access is available
-
-## Why The Separation Matters
-
-For a medical or bioinformatics workflow, the model should not infer variant meaning directly from raw VCF rows. The safer pattern is:
-
-1. parse the VCF
-2. annotate with deterministic tools and curated databases
-3. rank evidence
-4. let the LLM explain only the grounded evidence
-
-## Project Layout
-
-```text
-bioinformatics_vcf_evidence_mvp/
-  README.md
-  architecture.md
-  requirements.txt
-  sample.env
-  .env.example
-  CONTRIBUTING.md
-  HANDOFF.md
-  app/
-    main.py
-    models.py
-    services/
-      annotation.py
-      recommendation.py
-      references.py
-      vcf_summary.py
-  frontend/
-    index.html
-    styles.css
-    app.js
-```
-
-## Run
-
-Install dependencies:
+Python dependencies:
 
 ```bash
-python3 -m pip install --target /Users/jongcye/Documents/Codex/.vendor -r /Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp/requirements.txt
-PATH=/Users/jongcye/Documents/Codex/.local/node-v22.14.0-darwin-arm64/bin:$PATH npm install
+python3 -m pip install --target /Users/jongcye/Documents/Codex/.vendor -r requirements.txt
 ```
 
-Configure environment:
+Frontend dependencies:
 
 ```bash
-cd /Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp
-cp .env.example .env
+PATH=/Users/jongcye/Documents/Codex/.local/node/node-v22.22.1-darwin-arm64/bin:$PATH npm install
 ```
 
-Then edit `.env` and set:
+### Run
+
+Backend:
 
 ```bash
-OPENAI_API_KEY=your_api_key
-OPENAI_WORKFLOW_MODEL=gpt-5-nano
-OPENAI_MODEL=gpt-5-mini
+cd bioinformatics_vcf_evidence_mvp
+PYTHONPATH=/Users/jongcye/Documents/Codex/.vendor uvicorn app.main:app --host 127.0.0.1 --port 8001
 ```
 
-The FastAPI app auto-loads `.env` from the project root at startup.
-
-Start the API:
+Frontend build:
 
 ```bash
-cd /Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp
-PYTHONPATH=/Users/jongcye/Documents/Codex/.vendor uvicorn app.main:app --reload
+cd webapp
+PATH=/Users/jongcye/Documents/Codex/.local/node/node-v22.22.1-darwin-arm64/bin:$PATH npm run build:local
+```
+
+Frontend start:
+
+```bash
+cd webapp
+HOST=127.0.0.1 PORT=3003 PATH=/Users/jongcye/Documents/Codex/.local/node/node-v22.22.1-darwin-arm64/bin:$PATH npm run start:local
 ```
 
 Then open:
+- [http://127.0.0.1:3003](http://127.0.0.1:3003)
 
-- `GET /health`
-- `POST /api/v1/analysis/upload`
-- `POST /api/v1/analysis/from-path`
-- `POST /api/v1/analysis/from-path/async`
-- `GET /api/v1/analysis/jobs/{job_id}`
-- `POST /api/v1/chat/analysis`
-- `POST /api/v1/workflow/start`
-- `POST /api/v1/workflow/reply`
+## Documentation
 
-Start the Next.js frontend:
+- Revision history:
+  - [docs/REVISION_HISTORY.md](docs/REVISION_HISTORY.md)
+- Developer manual:
+  - [docs/DEVELOPER_MANUAL.md](docs/DEVELOPER_MANUAL.md)
+- Tool plugin guide:
+  - [docs/TOOL_PLUGIN_GUIDE.md](docs/TOOL_PLUGIN_GUIDE.md)
+- Contributing:
+  - [CONTRIBUTING.md](CONTRIBUTING.md)
 
-```bash
-cd /Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp
-PATH=/Users/jongcye/Documents/Codex/.local/node-v22.14.0-darwin-arm64/bin:$PATH npm run dev:webapp
-```
+## Current Limits
 
-Then open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+- `@tool` and `@skill` dispatch are much thinner than before, but not yet fully generic
+- some evidence sources such as standalone `@clinvar`, `@gnomad`, and `@vep` are not yet exposed as direct tools
+- PRS scoring currently uses a lightweight PLINK-based MVP, not a full PRSice/PRS-CS stack
+- `ANNOVAR`, `dbNSFP`, and `SnpSift` are not yet integrated
 
-## Primary UI Flow
+## Design Principle
 
-The main screen is a 3-column workspace:
+For genomics work, the intended pattern is:
 
-1. `Sources`
-   Attach a VCF and monitor run status.
-2. `Chat`
-   Answer intake prompts, read grounded summaries, and continue analysis chat.
-3. `Studio`
-   Open QC, filtering, annotation, ROH/recessive, IGV, and references views.
+1. use deterministic tools to establish facts
+2. render those outputs in Studio
+3. use `$studio` only when you want the model to explain the grounded result
 
-## Example Request
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/analysis/from-path \
-  -H 'Content-Type: application/json' \
-  -d '{"vcf_path":"/Users/jongcye/Documents/Codex/roh.1.vcf.gz"}'
-```
-
-Async request:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/analysis/from-path/async \
-  -H 'Content-Type: application/json' \
-  -d '{"vcf_path":"/Users/jongcye/Documents/Codex/roh.1.vcf.gz"}'
-```
-
-Then poll:
-
-```bash
-curl http://127.0.0.1:8000/api/v1/analysis/jobs/<job-id>
-```
-
-Chat request:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/chat/analysis \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"Summarize the key findings","analysis":{...},"history":[]}'
-```
-
-## Frontend Tooling
-
-- `npm run check:static-frontend` checks the static frontend JavaScript
-- `npm run build:webapp` builds the Next.js frontend
-- `npm run dev:webapp` starts the Next.js frontend
-
-## Handoff
-
-For another developer picking this up:
-
-- start with [HANDOFF.md](/Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp/HANDOFF.md)
-- use [CONTRIBUTING.md](/Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp/CONTRIBUTING.md) for setup and checks
-- keep `.env` local and use `.env.example` as the template
-- install the Codex skill at `skills/chatgenome-dev/SKILL.md` if they want repo-specific Codex guidance
-
-## GPT Workflow And Analysis Chat
-
-- `POST /api/v1/workflow/start` begins the queue-analysis conversation after a VCF is attached
-- `POST /api/v1/workflow/reply` interprets the user's natural-language option reply
-- `POST /api/v1/chat/analysis` answers questions about the grounded summary and annotations
-- if `OPENAI_API_KEY` is configured:
-  - workflow intake uses `OPENAI_WORKFLOW_MODEL` and defaults to `gpt-5-nano`
-  - grounded explanation uses `OPENAI_MODEL` and defaults to `gpt-5-mini`
-- without `OPENAI_API_KEY`, both routes fall back to deterministic local behavior
-
-## Near-Term Extensions
-
-1. Add VEP or snpEff consequence annotation.
-2. Add ClinVar and gnomAD lookup services.
-3. Add PubMed/Europe PMC retrieval and evidence ranking.
-4. Add pgvector-backed retrieval for prior analyses and literature snippets.
-5. Replace the static frontend with a Next.js app when you want routing, auth, and richer state handling.
-
-## Notes On Literature Retrieval
-
-- the MVP uses Europe PMC search as the live retrieval entrypoint
-- PubMed review queries are also used for gene-condition review retrieval
-- when a PMID is available, cards link directly to PubMed
-- if the network is unavailable, the API still returns the static foundational references
-- external HTTP responses are cached on disk to reduce repeated latency
-- next step: add better query generation from annotated genes, rsIDs, and diseases instead of file-level heuristics
+This keeps execution, evidence, and explanation clearly separated.
