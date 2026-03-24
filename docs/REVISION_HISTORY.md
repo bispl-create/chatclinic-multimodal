@@ -110,6 +110,47 @@ Why it mattered:
 - workflows and UI layout are now mode-driven
 - PRS no longer has to overload a single active source
 
+### 6. `@tool` routing was refactored into a generic dispatch path
+
+Relevant commits:
+- `cdc74d0` Refactor @tool parsing and compatibility checks
+- `7345a9f` Refactor direct tool dispatch routing
+- `2dbbdd5` Normalize direct tool chat responses
+- `b61b52c` Clean up generic @tool chat helpers
+
+What changed:
+- a shared alias registry was introduced for direct tools
+- `@tool` parsing was normalized into a common request shape
+- `@tool help` rendering and source-compatibility checks were centralized
+- tool routing was moved from scattered `if/elif` branches toward dispatch tables
+- direct tool responses started using shared response helpers
+
+Why it mattered:
+- adding new tools now requires fewer bespoke chat branches
+- tool behavior is more consistent across VCF, raw-QC, and summary-statistics sessions
+- the backend is closer to a thin runtime layer rather than a keyword router
+
+### 7. Direct tool execution status became visible in the UI
+
+Relevant commits:
+- `d6aee4c` Show running status for direct tool execution
+
+What changed:
+- long-running direct tools now update the top status badge while running
+- dedicated running/ready/failed states were added for:
+  - `@liftover`
+  - `@qqman`
+  - `@samtools`
+  - `@snpeff`
+  - `@ldblockshow`
+  - `@plink`
+  - `@plink score`
+- the status-detail text now explains what each direct tool is currently doing
+
+Why it mattered:
+- users can see that long-running deterministic tools are still working
+- stale “ready” states no longer make active tool runs look frozen
+
 ## Current State Summary
 
 ChatGenome now supports:
@@ -121,12 +162,14 @@ ChatGenome now supports:
 - direct Studio cards for pre-analysis tool runs
 - summary-statistics plotting with `qqman`
 - PRS prep plus PLINK scoring MVP
+- genericized `@tool` parsing, help, compatibility checks, and dispatch routing
+- direct-tool running status feedback in the chat header
 
 ## Known Follow-up Areas
 
 Still desirable:
 
-- more generic backend runners for `@tool` and `@skill`
+- more generic backend runners for `@skill`
 - standalone evidence tools such as `@clinvar`, `@gnomad`, and `@vep`
 - improved contributor-facing tool metadata and registration patterns
 - more polished onboarding and mode-specific guidance
