@@ -11,9 +11,17 @@
     "score_file_path"
   ],
   "steps": [
-    "build_check",
-    "harmonization_prep",
-    "score_file_prep"
+    {
+      "tool": "prs_prep_engine",
+      "bind": "prs_prep_result"
+    },
+    {
+      "tool": "prs_score_file_status",
+      "needs": [
+        "prs_prep_result"
+      ],
+      "bind": "score_file_ready"
+    }
   ],
   "default_view": "sumstats",
   "notes": [

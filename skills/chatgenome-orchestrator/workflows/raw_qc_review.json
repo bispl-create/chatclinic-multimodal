@@ -11,7 +11,10 @@
     "fastqc_report"
   ],
   "steps": [
-    "fastqc_execution_tool"
+    {
+      "tool": "raw_qc_review_engine",
+      "bind": "analysis"
+    }
   ],
   "default_view": "rawqc",
   "notes": [

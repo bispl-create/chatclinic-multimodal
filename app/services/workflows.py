@@ -470,6 +470,179 @@ def _assemble_analysis_response_from_vcf_context(context: dict[str, Any]) -> Ana
     )
 
 
+def _summary_stats_workflow_context(
+    analysis: SummaryStatsResponse,
+) -> dict[str, Any]:
+    return {
+        "source_stats_path": analysis.source_stats_path,
+        "file_name": analysis.file_name,
+        "genome_build": analysis.genome_build,
+        "trait_type": analysis.trait_type,
+        "analysis": analysis,
+        "prs_prep_result": analysis.prs_prep_result,
+        "draft_answer": analysis.draft_answer,
+    }
+
+
+def _run_summary_stats_workflow_step(step: dict[str, Any], context: dict[str, Any]) -> None:
+    tool_name = str(step.get("tool") or "").strip()
+    bind_name = str(step.get("bind") or "").strip()
+    needs = [str(item).strip() for item in step.get("needs", []) if str(item).strip()]
+
+    for need in needs:
+        value = context.get(need)
+        if value in (None, "", []):
+            raise RuntimeError(f"Summary-statistics workflow step `{tool_name}` is missing required context `{need}`.")
+
+    if tool_name == "summary_stats_review_engine":
+        context[bind_name] = analyze_summary_stats_workflow(
+            str(context["source_stats_path"] or ""),
+            str(context["file_name"]),
+            genome_build=str(context["genome_build"]),
+            trait_type=str(context["trait_type"]),
+        )
+        return
+
+    if tool_name == "summary_stats_draft_answer":
+        analysis: SummaryStatsResponse = context["analysis"]
+        context[bind_name] = analysis.draft_answer
+        return
+
+    if tool_name == "prs_prep_engine":
+        context[bind_name] = analyze_prs_prep_workflow(
+            str(context["source_stats_path"] or ""),
+            str(context["file_name"]),
+            genome_build=str(context["genome_build"]),
+        )
+        return
+
+    if tool_name == "prs_score_file_status":
+        prs_prep_result: PrsPrepResponse = context["prs_prep_result"]
+        context[bind_name] = prs_prep_result.score_file_ready
+        return
+
+    raise NotImplementedError(f"Unsupported summary-statistics workflow step tool: {tool_name}")
+
+
+def _run_registered_summary_stats_workflow_from_manifest(
+    analysis: SummaryStatsResponse,
+    manifest: dict[str, object],
+) -> dict[str, object]:
+    context = _summary_stats_workflow_context(analysis)
+    steps = manifest.get("steps")
+    if not isinstance(steps, list):
+        raise ValueError(f"Workflow {manifest.get('name')} does not define a valid step list.")
+    for step in steps:
+        if not isinstance(step, dict):
+            raise ValueError(f"Workflow {manifest.get('name')} contains a non-object step.")
+        _run_summary_stats_workflow_step(step, context)
+
+    workflow_name = str(manifest.get("name") or "")
+    requested_view = str(manifest.get("requested_view") or "sumstats")
+
+    if workflow_name == "summary_stats_review":
+        refreshed: SummaryStatsResponse = context["analysis"]
+        auto_mapped_count = sum(1 for value in refreshed.mapped_fields.model_dump().values() if value)
+        answer = (
+            "The summary_stats_review workflow was rerun on the active source.\n\n"
+            f"- Workflow: `{workflow_name}`\n"
+            f"- Active file: `{refreshed.file_name}`\n"
+            f"- Rows detected: {refreshed.row_count}\n"
+            f"- Auto-mapped fields: {auto_mapped_count}\n\n"
+            "The Summary Statistics Review state has been refreshed. Use `$studio ...` for grounded explanation of the current review state, or ask for a downstream workflow such as PRS preparation."
+        )
+        return {
+            "answer": answer,
+            "analysis": refreshed,
+            "requested_view": requested_view,
+        }
+
+    if workflow_name == "prs_prep":
+        prs_prep_result: PrsPrepResponse = context["prs_prep_result"]
+        refreshed = analysis.model_copy(update={"prs_prep_result": prs_prep_result})
+        answer = (
+            "The prs_prep workflow was run on the active summary-statistics source.\n\n"
+            f"- Workflow: `{workflow_name}`\n"
+            f"- Active file: `{prs_prep_result.file_name}`\n"
+            f"- Build check: {prs_prep_result.build_check.inferred_build} ({prs_prep_result.build_check.build_confidence})\n"
+            f"- Score-file rows kept: {prs_prep_result.kept_rows}\n"
+            f"- Score-file rows dropped: {prs_prep_result.dropped_rows}\n"
+            f"- Score file ready: {'yes' if prs_prep_result.score_file_ready else 'no'}\n\n"
+            "The PRS Prep Review state has been added to Studio. Use `$studio ...` to ask grounded questions about build check, harmonization, or score-file readiness."
+        )
+        return {
+            "answer": answer,
+            "analysis": refreshed,
+            "requested_view": requested_view,
+            "prs_prep_result": prs_prep_result,
+        }
+
+    raise NotImplementedError(
+        f"Workflow {workflow_name} is registered but not yet executable in the structured summary-statistics runner."
+    )
+
+
+def _raw_qc_workflow_context(
+    analysis: RawQcResponse,
+) -> dict[str, Any]:
+    return {
+        "source_raw_path": analysis.source_raw_path,
+        "file_name": analysis.facts.file_name,
+        "analysis": analysis,
+    }
+
+
+def _run_raw_qc_workflow_step(step: dict[str, Any], context: dict[str, Any]) -> None:
+    tool_name = str(step.get("tool") or "").strip()
+    bind_name = str(step.get("bind") or "").strip()
+    needs = [str(item).strip() for item in step.get("needs", []) if str(item).strip()]
+
+    for need in needs:
+        value = context.get(need)
+        if value in (None, "", []):
+            raise RuntimeError(f"Raw-QC workflow step `{tool_name}` is missing required context `{need}`.")
+
+    if tool_name == "raw_qc_review_engine":
+        context[bind_name] = analyze_raw_qc_workflow(
+            str(context["source_raw_path"] or ""),
+            str(context["file_name"]),
+        )
+        return
+
+    raise NotImplementedError(f"Unsupported raw-QC workflow step tool: {tool_name}")
+
+
+def _run_registered_raw_qc_workflow_from_manifest(
+    analysis: RawQcResponse,
+    manifest: dict[str, object],
+) -> dict[str, object]:
+    context = _raw_qc_workflow_context(analysis)
+    steps = manifest.get("steps")
+    if not isinstance(steps, list):
+        raise ValueError(f"Workflow {manifest.get('name')} does not define a valid step list.")
+    for step in steps:
+        if not isinstance(step, dict):
+            raise ValueError(f"Workflow {manifest.get('name')} contains a non-object step.")
+        _run_raw_qc_workflow_step(step, context)
+
+    workflow_name = str(manifest.get("name") or "")
+    refreshed: RawQcResponse = context["analysis"]
+    requested_view = str(manifest.get("requested_view") or "rawqc")
+    answer = (
+        "The raw_qc_review workflow was rerun on the active source.\n\n"
+        f"- Workflow: `{workflow_name}`\n"
+        f"- Active file: `{refreshed.facts.file_name}`\n"
+        f"- Logged tools: {', '.join(refreshed.used_tools or []) or 'none'}\n"
+        f"- Modules: {len(refreshed.modules)}\n\n"
+        "The raw-QC state has been refreshed. Use `@samtools` for additional alignment review on compatible sources, or `$studio ...` for grounded explanation of the current Studio state."
+    )
+    return {
+        "answer": answer,
+        "analysis": refreshed,
+        "requested_view": requested_view,
+    }
+
+
 def _analyze_vcf_workflow_legacy(
     path: str,
     annotation_scope: str = "representative",
@@ -877,6 +1050,12 @@ def run_registered_raw_qc_workflow(
             "The active raw-QC session does not expose a durable source file path, so this workflow cannot be rerun from chat."
         )
 
+    structured_steps = isinstance(manifest.get("steps"), list) and all(
+        isinstance(step, dict) for step in manifest.get("steps", [])
+    )
+    if structured_steps:
+        return _run_registered_raw_qc_workflow_from_manifest(analysis, manifest)
+
     if workflow_name == "raw_qc_review":
         refreshed = analyze_raw_qc_workflow(
             analysis.source_raw_path or "",
@@ -940,6 +1119,12 @@ def run_registered_summary_stats_workflow(
         raise RuntimeError(
             "The active summary-statistics session does not expose a durable source file path, so this workflow cannot be rerun from chat."
         )
+
+    structured_steps = isinstance(manifest.get("steps"), list) and all(
+        isinstance(step, dict) for step in manifest.get("steps", [])
+    )
+    if structured_steps:
+        return _run_registered_summary_stats_workflow_from_manifest(analysis, manifest)
 
     if workflow_name == "summary_stats_review":
         refreshed = analyze_summary_stats_workflow(

@@ -11,9 +11,17 @@
     "grounded_summary"
   ],
   "steps": [
-    "summary_stats_intake",
-    "summary_stats_qc",
-    "grounded_summary_tool"
+    {
+      "tool": "summary_stats_review_engine",
+      "bind": "analysis"
+    },
+    {
+      "tool": "summary_stats_draft_answer",
+      "needs": [
+        "analysis"
+      ],
+      "bind": "draft_answer"
+    }
   ],
   "default_view": "sumstats",
   "notes": [
