@@ -4,7 +4,7 @@ import os
 import uuid
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -448,7 +448,7 @@ def analyze_from_path_async(request: FromPathRequest) -> AnalysisJobResponse:
 
 @app.post(
     "/api/v1/source/from-path",
-    response_model=AnalysisResponse | RawQcResponse | SummaryStatsResponse,
+    response_model=Union[AnalysisResponse, RawQcResponse, SummaryStatsResponse],
 )
 def analyze_registered_source_from_path(
     request: SourceFromPathRequest,
