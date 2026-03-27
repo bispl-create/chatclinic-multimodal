@@ -1,0 +1,19 @@
+{
+  "name": "prs_prep_tool",
+  "description": "Analyze a summary-statistics source for build check, harmonization readiness, and PLINK score-file preparation.",
+  "task": "prs-prep",
+  "modality": "genomics",
+  "approval_required": false,
+  "source": "plugin",
+  "workflow_binding": {
+    "source_type": "summary_stats",
+    "input_map": {
+      "source_stats_path": "$source_stats_path",
+      "file_name": "$file_name",
+      "genome_build": "$genome_build"
+    },
+    "result_path": "prs_prep_result",
+    "transform": "prs_prep_response",
+    "used_tools_label": "prs_prep_tool"
+  }
+}

@@ -6,9 +6,11 @@ from app.models import (
     AnalysisFacts,
     CountSummaryItem,
     DetailedCountSummaryItem,
+    PrsPrepResponse,
     RankedCandidate,
     RohSegment,
     SnpEffResponse,
+    SummaryStatsResponse,
     SymbolicAltSummary,
     VariantAnnotation,
 )
@@ -34,4 +36,8 @@ def transform_bound_value(transform: str, value: Any) -> Any:
         return SymbolicAltSummary(**dict(value or {}))
     if normalized == "snpeff_response":
         return SnpEffResponse(**dict(value or {}))
+    if normalized == "summary_stats_response":
+        return SummaryStatsResponse(**dict(value or {}))
+    if normalized == "prs_prep_response":
+        return PrsPrepResponse(**dict(value or {}))
     raise NotImplementedError(f"Unsupported workflow binding transform: {transform}")

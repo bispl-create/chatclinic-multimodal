@@ -9,25 +9,16 @@
     "source_stats_path"
   ],
   "produces": [
-    "summary_stats_analysis",
-    "grounded_summary"
+    "summary_stats_analysis"
   ],
   "steps": [
     {
-      "tool": "summary_stats_review_engine",
+      "tool": "summary_stats_review_tool",
       "bind": "analysis"
-    },
-    {
-      "tool": "summary_stats_draft_answer",
-      "needs": [
-        "analysis"
-      ],
-      "bind": "draft_answer"
     }
   ],
   "default_view": "sumstats",
   "notes": [
-    "The summary-statistics intake and QC steps are currently implemented inside the upload/runtime layer rather than as standalone registered plugins.",
-    "This workflow definition is the target orchestration shape for future @skill execution."
+    "The summary-statistics intake and QC step is executed through the registered summary_stats_review_tool plugin."
   ]
 }

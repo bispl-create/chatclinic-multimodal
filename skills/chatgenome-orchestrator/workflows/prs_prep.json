@@ -14,15 +14,8 @@
   ],
   "steps": [
     {
-      "tool": "prs_prep_engine",
+      "tool": "prs_prep_tool",
       "bind": "prs_prep_result"
-    },
-    {
-      "tool": "prs_score_file_status",
-      "needs": [
-        "prs_prep_result"
-      ],
-      "bind": "score_file_ready"
     }
   ],
   "default_view": "sumstats",

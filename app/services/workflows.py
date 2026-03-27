@@ -328,6 +328,18 @@ def _run_summary_stats_workflow_step(step: dict[str, Any], context: dict[str, An
         value = context.get(need)
         if value in (None, "", []):
             raise RuntimeError(f"Summary-statistics workflow step `{tool_name}` is missing required context `{need}`.")
+    binding = _workflow_binding_for_tool(tool_name, source_type="summary_stats")
+    if binding is not None:
+        payload = _build_tool_payload_from_binding(binding, context)
+        result = run_tool(tool_name, payload)
+        value = _extract_tool_result_value(result, binding)
+        transformed_value = transform_bound_value(str(binding.get("transform") or "identity"), value)
+        context[bind_name] = transformed_value
+        used_tools_label = str(binding.get("used_tools_label") or tool_name).strip()
+        analysis_obj = context.get("analysis")
+        if used_tools_label and isinstance(analysis_obj, SummaryStatsResponse):
+            analysis_obj.used_tools.append(used_tools_label)
+        return
     execute_summary_stats_internal_step(
         tool_name,
         context,
