@@ -287,6 +287,13 @@ Remaining work for later stages:
 - shrink the legacy VCF path
 - continue moving response assembly and bootstrap logic out of `workflows.py`
 
+Additional progress on branch `codex/generic_tool`:
+
+- summary-statistics and raw-QC internal pseudo-step execution was moved out of `workflows.py` into:
+  - `app/services/workflow_internal_steps.py`
+
+This does not make those steps fully pluginized yet, but it removes another source-specific executor registry from the main orchestration file.
+
 ## Stage 6. Convert Upload Bootstrap Into Workflow-Driven Source Initialization
 
 ### Objective

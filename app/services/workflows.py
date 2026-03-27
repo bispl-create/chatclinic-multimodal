@@ -39,6 +39,10 @@ from app.services.workflow_hooks import (
     apply_vcf_preprocess_hook,
     snpeff_genome_from_build,
 )
+from app.services.workflow_internal_steps import (
+    execute_raw_qc_internal_step,
+    execute_summary_stats_internal_step,
+)
 from app.services.workflow_transforms import transform_bound_value
 
 
@@ -675,41 +679,6 @@ def _summary_stats_workflow_context(
     }
 
 
-def _execute_summary_stats_review_engine(context: dict[str, Any], bind_name: str) -> None:
-    context[bind_name] = analyze_summary_stats_workflow(
-        str(context["source_stats_path"] or ""),
-        str(context["file_name"]),
-        genome_build=str(context["genome_build"]),
-        trait_type=str(context["trait_type"]),
-    )
-
-
-def _execute_summary_stats_draft_answer(context: dict[str, Any], bind_name: str) -> None:
-    analysis: SummaryStatsResponse = context["analysis"]
-    context[bind_name] = analysis.draft_answer
-
-
-def _execute_prs_prep_engine(context: dict[str, Any], bind_name: str) -> None:
-    context[bind_name] = analyze_prs_prep_workflow(
-        str(context["source_stats_path"] or ""),
-        str(context["file_name"]),
-        genome_build=str(context["genome_build"]),
-    )
-
-
-def _execute_prs_score_file_status(context: dict[str, Any], bind_name: str) -> None:
-    prs_prep_result: PrsPrepResponse = context["prs_prep_result"]
-    context[bind_name] = prs_prep_result.score_file_ready
-
-
-SUMMARY_STATS_STEP_EXECUTORS: dict[str, Any] = {
-    "summary_stats_review_engine": _execute_summary_stats_review_engine,
-    "summary_stats_draft_answer": _execute_summary_stats_draft_answer,
-    "prs_prep_engine": _execute_prs_prep_engine,
-    "prs_score_file_status": _execute_prs_score_file_status,
-}
-
-
 def _run_summary_stats_workflow_step(step: dict[str, Any], context: dict[str, Any]) -> None:
     tool_name = str(step.get("tool") or "").strip()
     bind_name = str(step.get("bind") or "").strip()
@@ -719,11 +688,13 @@ def _run_summary_stats_workflow_step(step: dict[str, Any], context: dict[str, An
         value = context.get(need)
         if value in (None, "", []):
             raise RuntimeError(f"Summary-statistics workflow step `{tool_name}` is missing required context `{need}`.")
-
-    executor = SUMMARY_STATS_STEP_EXECUTORS.get(tool_name)
-    if executor is None:
-        raise NotImplementedError(f"Unsupported summary-statistics workflow step tool: {tool_name}")
-    executor(context, bind_name)
+    execute_summary_stats_internal_step(
+        tool_name,
+        context,
+        bind_name,
+        analyze_summary_stats_workflow=analyze_summary_stats_workflow,
+        analyze_prs_prep_workflow=analyze_prs_prep_workflow,
+    )
 
 
 def _run_registered_summary_stats_workflow_from_manifest(
@@ -767,18 +738,6 @@ def _raw_qc_workflow_context(
     }
 
 
-def _execute_raw_qc_review_engine(context: dict[str, Any], bind_name: str) -> None:
-    context[bind_name] = analyze_raw_qc_workflow(
-        str(context["source_raw_path"] or ""),
-        str(context["file_name"]),
-    )
-
-
-RAW_QC_STEP_EXECUTORS: dict[str, Any] = {
-    "raw_qc_review_engine": _execute_raw_qc_review_engine,
-}
-
-
 def _run_raw_qc_workflow_step(step: dict[str, Any], context: dict[str, Any]) -> None:
     tool_name = str(step.get("tool") or "").strip()
     bind_name = str(step.get("bind") or "").strip()
@@ -788,11 +747,12 @@ def _run_raw_qc_workflow_step(step: dict[str, Any], context: dict[str, Any]) -> 
         value = context.get(need)
         if value in (None, "", []):
             raise RuntimeError(f"Raw-QC workflow step `{tool_name}` is missing required context `{need}`.")
-
-    executor = RAW_QC_STEP_EXECUTORS.get(tool_name)
-    if executor is None:
-        raise NotImplementedError(f"Unsupported raw-QC workflow step tool: {tool_name}")
-    executor(context, bind_name)
+    execute_raw_qc_internal_step(
+        tool_name,
+        context,
+        bind_name,
+        analyze_raw_qc_workflow=analyze_raw_qc_workflow,
+    )
 
 
 def _run_registered_raw_qc_workflow_from_manifest(
