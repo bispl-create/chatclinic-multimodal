@@ -245,6 +245,59 @@ def _safe_fastqc_artifact_path(path_str: str) -> Path:
     return candidate
 
 
+def _resolve_source_upload(filename: str, expected_source_type: str | None = None) -> tuple[str, str]:
+    detected = detect_source_registration(filename)
+    if detected is None:
+        if expected_source_type is not None:
+            detail = source_upload_detail(expected_source_type)
+            raise HTTPException(status_code=400, detail=detail or "Unsupported upload type.")
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported source type. Upload a VCF, raw sequencing file, or summary statistics file.",
+        )
+    source_type, _, _ = detected
+    if expected_source_type is not None and source_type != expected_source_type:
+        detail = source_upload_detail(expected_source_type)
+        raise HTTPException(status_code=400, detail=detail or "Unsupported upload type.")
+    return source_type, filename
+
+
+def _run_source_bootstrap(
+    source_type: str,
+    durable_path: Path,
+    file_name: str,
+    **kwargs: object,
+) -> AnalysisResponse | RawQcResponse | SummaryStatsResponse:
+    bootstrap_source_type = source_bootstrap_type(source_type)
+    if load_bootstrap_manifest(bootstrap_source_type) is None:
+        raise HTTPException(status_code=500, detail=f"The {source_type} bootstrap manifest is not available.")
+    try:
+        return run_bootstrap_analysis(
+            bootstrap_source_type,
+            str(durable_path),
+            file_name,
+            **kwargs,
+        )
+    except Exception as exc:
+        label = {
+            "vcf": "Analysis",
+            "raw_qc": "Raw-QC intake",
+            "summary_stats": "Summary statistics intake",
+        }.get(source_type, "Bootstrap analysis")
+        raise HTTPException(status_code=400, detail=f"{label} failed: {exc}") from exc
+
+
+def _persist_and_bootstrap_upload(
+    source_type: str,
+    file_name: str,
+    data: bytes,
+    **kwargs: object,
+) -> AnalysisResponse | RawQcResponse | SummaryStatsResponse:
+    bootstrap_source_type = source_bootstrap_type(source_type)
+    durable_path = persist_uploaded_source_bytes(bootstrap_source_type, file_name, data)
+    return _run_source_bootstrap(source_type, durable_path, file_name, **kwargs)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -462,37 +515,27 @@ async def analyze_upload(
     annotation_limit: Optional[int] = Form(None),
 ) -> AnalysisResponse:
     original_name = file.filename or "upload.vcf"
-    detected = detect_source_registration(original_name)
-    if detected is None or detected[0] != "vcf":
-        raise HTTPException(status_code=400, detail=source_upload_detail("vcf") or "Only .vcf and .vcf.gz uploads are supported.")
-    bootstrap_source_type = source_bootstrap_type("vcf")
-    if load_bootstrap_manifest(bootstrap_source_type) is None:
-        raise HTTPException(status_code=500, detail="The VCF bootstrap manifest is not available.")
-    durable_path = persist_uploaded_source_bytes(bootstrap_source_type, original_name, await file.read())
-
-    try:
-        return run_bootstrap_analysis(
-            bootstrap_source_type,
-            str(durable_path),
-            original_name,
-            annotation_scope=annotation_scope,
-            annotation_limit=annotation_limit,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Analysis failed: {exc}") from exc
+    _resolve_source_upload(original_name, expected_source_type="vcf")
+    result = _persist_and_bootstrap_upload(
+        "vcf",
+        original_name,
+        await file.read(),
+        annotation_scope=annotation_scope,
+        annotation_limit=annotation_limit,
+    )
+    if not isinstance(result, AnalysisResponse):
+        raise HTTPException(status_code=500, detail="Unexpected bootstrap response type for VCF upload.")
+    return result
 
 
 @app.post("/api/v1/raw-qc/upload", response_model=RawQcResponse)
 async def analyze_raw_qc_upload(file: UploadFile = File(...)) -> RawQcResponse:
     filename = file.filename or "upload.fastq.gz"
-    detected = detect_source_registration(filename)
-    if detected is None or detected[0] != "raw_qc":
-        raise HTTPException(status_code=400, detail=source_upload_detail("raw_qc") or "Only FASTQ, FASTQ.gz, FQ, FQ.gz, BAM, and SAM uploads are supported.")
-    bootstrap_source_type = source_bootstrap_type("raw_qc")
-    if load_bootstrap_manifest(bootstrap_source_type) is None:
-        raise HTTPException(status_code=500, detail="The raw-QC bootstrap manifest is not available.")
-    durable_path = persist_uploaded_source_bytes(bootstrap_source_type, filename, await file.read())
-    return run_bootstrap_analysis(bootstrap_source_type, str(durable_path), filename)
+    _resolve_source_upload(filename, expected_source_type="raw_qc")
+    result = _persist_and_bootstrap_upload("raw_qc", filename, await file.read())
+    if not isinstance(result, RawQcResponse):
+        raise HTTPException(status_code=500, detail="Unexpected bootstrap response type for raw-QC upload.")
+    return result
 
 
 @app.post("/api/v1/summary-stats/upload", response_model=SummaryStatsResponse)
@@ -502,35 +545,26 @@ async def analyze_summary_stats_upload(
     trait_type: str = Form("unknown"),
 ) -> SummaryStatsResponse:
     filename = file.filename or "summary_stats.tsv.gz"
-    detected = detect_source_registration(filename)
-    if detected is None or detected[0] != "summary_stats":
-        raise HTTPException(status_code=400, detail=source_upload_detail("summary_stats") or "Only TSV/TXT/CSV summary statistics uploads are supported.")
-    bootstrap_source_type = source_bootstrap_type("summary_stats")
-    if load_bootstrap_manifest(bootstrap_source_type) is None:
-        raise HTTPException(status_code=500, detail="The summary-statistics bootstrap manifest is not available.")
-    durable_path = persist_uploaded_source_bytes(bootstrap_source_type, filename, await file.read())
-    try:
-        return run_bootstrap_analysis(
-            bootstrap_source_type,
-            str(durable_path),
-            filename,
-            genome_build=genome_build,
-            trait_type=trait_type,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Summary statistics intake failed: {exc}") from exc
+    _resolve_source_upload(filename, expected_source_type="summary_stats")
+    result = _persist_and_bootstrap_upload(
+        "summary_stats",
+        filename,
+        await file.read(),
+        genome_build=genome_build,
+        trait_type=trait_type,
+    )
+    if not isinstance(result, SummaryStatsResponse):
+        raise HTTPException(status_code=500, detail="Unexpected bootstrap response type for summary-statistics upload.")
+    return result
 
 
 @app.post("/api/v1/source/upload", response_model=SourceReadyResponse)
 async def upload_active_source(file: UploadFile = File(...)) -> SourceReadyResponse:
     filename = file.filename or "upload.dat"
+    source_type, _ = _resolve_source_upload(filename)
     detected = detect_source_registration(filename)
-    if detected is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Unsupported source type. Upload a VCF, raw sequencing file, or summary statistics file.",
-        )
-    source_type, _, matched_suffix = detected
+    assert detected is not None
+    _, _, matched_suffix = detected
     bootstrap_source_type = source_bootstrap_type(source_type)
     durable_path = persist_uploaded_source_bytes(bootstrap_source_type, filename, await file.read())
     response_payload: dict[str, object] = {

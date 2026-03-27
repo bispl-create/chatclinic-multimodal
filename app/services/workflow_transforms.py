@@ -7,6 +7,7 @@ from app.models import (
     CountSummaryItem,
     DetailedCountSummaryItem,
     PrsPrepResponse,
+    RawQcResponse,
     RankedCandidate,
     RohSegment,
     SnpEffResponse,
@@ -40,4 +41,6 @@ def transform_bound_value(transform: str, value: Any) -> Any:
         return SummaryStatsResponse(**dict(value or {}))
     if normalized == "prs_prep_response":
         return PrsPrepResponse(**dict(value or {}))
+    if normalized == "raw_qc_response":
+        return RawQcResponse(**dict(value or {}))
     raise NotImplementedError(f"Unsupported workflow binding transform: {transform}")

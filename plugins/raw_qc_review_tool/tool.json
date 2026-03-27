@@ -1,0 +1,18 @@
+{
+  "name": "raw_qc_review_tool",
+  "description": "Run the default FastQC-based raw sequencing review on the active FASTQ, BAM, or SAM source.",
+  "task": "raw-qc-review",
+  "modality": "genomics",
+  "approval_required": false,
+  "source": "plugin",
+  "workflow_binding": {
+    "source_type": "raw_qc",
+    "input_map": {
+      "raw_path": "$source_raw_path",
+      "original_name": "$file_name"
+    },
+    "result_path": "analysis",
+    "transform": "raw_qc_response",
+    "used_tools_label": "raw_qc_review_tool"
+  }
+}

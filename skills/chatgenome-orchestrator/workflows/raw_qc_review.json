@@ -14,7 +14,7 @@
   ],
   "steps": [
     {
-      "tool": "raw_qc_review_engine",
+      "tool": "raw_qc_review_tool",
       "bind": "analysis"
     }
   ],
