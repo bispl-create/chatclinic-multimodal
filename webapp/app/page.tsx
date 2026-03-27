@@ -563,6 +563,7 @@ type AnalysisQuestionTurn = {
 type StudioView =
   | "text"
   | "cohort_browser"
+  | `sheet::${string}::cohort_browser`
   | "candidates"
   | "acmg"
   | "provenance"
@@ -2273,6 +2274,7 @@ export default function Page() {
   ): Promise<SpreadsheetSourceResponse | null> {
     const silent = options?.silent ?? false;
     setError(null);
+    setStatus("Running spreadsheet review...");
     if (!silent) {
       addMessage({
         role: "assistant",
@@ -3139,6 +3141,9 @@ export default function Page() {
     if (status === "Uploading spreadsheet source...") {
       return "The workbook is being uploaded and prepared for sheet-level cohort review.";
     }
+    if (status === "Running spreadsheet review...") {
+      return "The workbook upload is complete. ChatGenome is reading sheets and building cohort browser artifacts.";
+    }
     if (status === "Uploading text source...") {
       return "The text source is being uploaded for note review.";
     }
@@ -3248,6 +3253,7 @@ export default function Page() {
     status === "Preparing analysis..." ||
     status === "Analyzing" ||
     status === "Uploading spreadsheet source..." ||
+    status === "Running spreadsheet review..." ||
     status === "Uploading text source..." ||
     status === "Uploading summary statistics source..." ||
     status === "Uploading raw sequencing source..." ||
@@ -3547,9 +3553,15 @@ export default function Page() {
             : []),
         ]
     : spreadsheetAnalysis
-      ? [
-          { id: "cohort_browser" as StudioView, title: "Cohort Browser", subtitle: "Sheet-level cohort overview and grid preview" },
-        ]
+      ? (
+          spreadsheetAnalysis.studio_cards?.length
+            ? spreadsheetAnalysis.studio_cards.map((card) => ({
+                id: String(card.id ?? card.base_id ?? "cohort_browser") as StudioView,
+                title: String(card.title ?? "Cohort Browser"),
+                subtitle: String(card.subtitle ?? "Sheet-level cohort overview and grid preview"),
+              }))
+            : [{ id: "cohort_browser" as StudioView, title: "Cohort Browser", subtitle: "Sheet-level cohort overview and grid preview" }]
+        )
     : textAnalysis
       ? [
           { id: "text" as StudioView, title: "Text Review", subtitle: "Preview and note-length summary" },
@@ -3603,6 +3615,7 @@ export default function Page() {
         ];
   const externalStudioRendererRegistry = buildStudioRendererRegistry({
     apiBase,
+    activeStudioView,
     analysis,
     rawQcAnalysis,
     summaryStatsAnalysis,
@@ -3689,12 +3702,35 @@ export default function Page() {
   }
   const studioContext = useMemo(() => {
     if (spreadsheetAnalysis) {
+      const selectedSpreadsheetSheet =
+        typeof activeStudioView === "string" && activeStudioView.startsWith("sheet::") && activeStudioView.endsWith("::cohort_browser")
+          ? activeStudioView.slice("sheet::".length, -"::cohort_browser".length)
+          : spreadsheetAnalysis.selected_sheet;
+      const selectedSpreadsheetArtifact =
+        selectedSpreadsheetSheet && spreadsheetAnalysis.artifacts
+          ? spreadsheetAnalysis.artifacts[`sheet::${selectedSpreadsheetSheet}::cohort_browser`] ?? null
+          : null;
       return {
         active_view: activeStudioView,
         sheet_count: spreadsheetAnalysis.sheet_count,
-        selected_sheet: spreadsheetAnalysis.selected_sheet,
+        selected_sheet: selectedSpreadsheetSheet,
         sheet_names: spreadsheetAnalysis.sheet_names,
         sheet_details: spreadsheetAnalysis.sheet_details?.slice(0, 8),
+        current_sheet: selectedSpreadsheetArtifact
+          ? {
+              overview: selectedSpreadsheetArtifact.overview ?? null,
+              intake: selectedSpreadsheetArtifact.intake ?? null,
+              schema_highlights: Array.isArray(selectedSpreadsheetArtifact.schema_highlights)
+                ? selectedSpreadsheetArtifact.schema_highlights.slice(0, 24)
+                : [],
+              missingness: selectedSpreadsheetArtifact.missingness ?? null,
+              composition: selectedSpreadsheetArtifact.composition ?? null,
+              preview_columns: selectedSpreadsheetArtifact.grid?.columns ?? [],
+              preview_rows: Array.isArray(selectedSpreadsheetArtifact.grid?.rows)
+                ? selectedSpreadsheetArtifact.grid.rows.slice(0, 60)
+                : [],
+            }
+          : null,
       };
     }
     if (!analysis) {

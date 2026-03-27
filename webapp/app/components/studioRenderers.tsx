@@ -43,6 +43,9 @@ function findRendererKeyByRequestedView(requestedView?: string | null): string |
   if (!normalized) {
     return null;
   }
+  if (normalized.startsWith("sheet::") && normalized.endsWith("::cohort_browser")) {
+    return "cohort_browser";
+  }
   for (const [rendererKey, metadata] of Object.entries(STUDIO_RENDERER_METADATA)) {
     if (metadata.requestedViews?.includes(normalized)) {
       return rendererKey;

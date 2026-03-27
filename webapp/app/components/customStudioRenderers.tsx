@@ -1,15 +1,49 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import IgvBrowser from "./IgvBrowser";
 import { type StudioRendererBuilderArgs, type StudioRendererRegistry } from "./studioRendererTypes";
 
+function MetricBarList({
+  items,
+  emptyLabel,
+}: {
+  items: Array<{ label: string; detail: string; value: number }>;
+  emptyLabel: string;
+}) {
+  const maxValue = items.reduce((acc, item) => Math.max(acc, item.value), 0);
+  if (!items.length) {
+    return <p className="emptyState">{emptyLabel}</p>;
+  }
+
+  return (
+    <div className="distributionList">
+      {items.map((item) => {
+        const width = maxValue > 0 ? Math.max((item.value / maxValue) * 100, 6) : 0;
+        return (
+          <div key={`${item.label}-${item.detail}`} className="distributionRow">
+            <div className="distributionMeta">
+              <span>{item.label}</span>
+              <strong>{item.detail}</strong>
+            </div>
+            <div className="distributionTrack">
+              <div className="distributionFill" style={{ width: `${width}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CohortBrowserCard({
+  activeView,
   analysis,
   components,
   helpers,
 }: {
+  activeView: string | null;
   analysis: any;
   components: StudioRendererBuilderArgs["components"];
   helpers: StudioRendererBuilderArgs["helpers"];
@@ -17,15 +51,15 @@ function CohortBrowserCard({
   const { StudioMetricGrid, StudioPreviewTable, StudioSimpleList, WarningListCard } = components;
   const { formatNumber } = helpers;
   const sheetNames = Array.isArray(analysis?.sheet_names) ? analysis.sheet_names : [];
-  const initialSheet =
+  const selectedSheetFromView =
+    typeof activeView === "string" && activeView.startsWith("sheet::") && activeView.endsWith("::cohort_browser")
+      ? activeView.slice("sheet::".length, -"::cohort_browser".length)
+      : null;
+  const selectedSheet =
+    (selectedSheetFromView && sheetNames.includes(selectedSheetFromView) && selectedSheetFromView) ||
     (typeof analysis?.selected_sheet === "string" && analysis.selected_sheet.trim()) ||
     sheetNames[0] ||
     null;
-  const [selectedSheet, setSelectedSheet] = useState<string | null>(initialSheet);
-
-  useEffect(() => {
-    setSelectedSheet(initialSheet);
-  }, [initialSheet]);
 
   const artifact = useMemo(() => {
     if (!selectedSheet || !analysis?.artifacts) {
@@ -51,14 +85,33 @@ function CohortBrowserCard({
     : Array.isArray(artifact?.missingness)
       ? artifact.missingness
       : [];
-  const subjectRows = Array.isArray(artifact?.subjects) ? artifact.subjects : [];
+  const schemaGraphItems = schemaHighlights.map((item: any) => ({
+    label: String(item.name ?? item.column ?? "column"),
+    detail: `${item.inferred_type ?? item.type ?? "unknown"} | ${formatNumber(item.unique_count)} unique`,
+    value: Number(item.unique_count ?? 0),
+  }));
+  const missingnessGraphItems = missingnessRows.map((item: any) => {
+    const rate = typeof item.missing_rate === "number" ? item.missing_rate * 100 : Number(String(item.percent ?? "0").replace("%", "")) || 0;
+    return {
+      label: String(item.column ?? "column"),
+      detail: `${formatNumber(item.missing_count ?? item.missing)} missing | ${rate.toFixed(1)}%`,
+      value: rate,
+    };
+  });
   const overviewItems = [
     { label: "Workbook", value: analysis?.file_name ?? "n/a", tone: "neutral" as const },
     { label: "Sheets", value: formatNumber(analysis?.sheet_count), tone: "good" as const },
     { label: "Selected", value: selectedSheet ?? "n/a", tone: "neutral" as const },
-    { label: "Rows", value: formatNumber(sheetDetails?.row_count), tone: "good" as const },
-    { label: "Columns", value: formatNumber(sheetDetails?.column_count), tone: "neutral" as const },
-    { label: "Shape", value: artifact?.overview?.shape ?? "n/a", tone: "neutral" as const },
+    { label: "Rows", value: formatNumber(artifact?.overview?.row_count ?? sheetDetails?.row_count), tone: "good" as const },
+    { label: "Columns", value: formatNumber(artifact?.overview?.column_count ?? sheetDetails?.column_count), tone: "neutral" as const },
+    {
+      label: "Shape",
+      value:
+        artifact?.overview?.row_count != null && artifact?.overview?.column_count != null
+          ? `${artifact.overview.row_count} x ${artifact.overview.column_count}`
+          : "n/a",
+      tone: "neutral" as const,
+    },
   ];
 
   return (
@@ -69,66 +122,47 @@ function CohortBrowserCard({
       </div>
       <div className="studioCanvasBody">
         <StudioMetricGrid items={overviewItems} />
-        <div className="resultActionRow" style={{ flexWrap: "wrap" }}>
-          {sheetNames.map((sheetName: string) => (
-            <button
-              key={sheetName}
-              type="button"
-              className="sourceAddButton"
-              onClick={() => setSelectedSheet(sheetName)}
-              style={selectedSheet === sheetName ? { opacity: 1, borderStyle: "solid" } : { opacity: 0.75 }}
-            >
-              {sheetName}
-            </button>
-          ))}
-        </div>
         {artifact ? (
           <>
             <div className="resultSectionSplit">
               <article className="miniCard">
-                <h3>Overview</h3>
-                <StudioSimpleList
-                  items={[
-                    { label: "Class", detail: artifact.overview?.classification ?? "n/a" },
-                    { label: "Subject id", detail: artifact.overview?.subject_id_column ?? "n/a" },
-                    { label: "Subject rows", detail: formatNumber(artifact.overview?.subject_count) },
-                    { label: "Missingness", detail: formatNumber(artifact.overview?.missing_cells) },
-                  ]}
+                <h3>Schema highlights</h3>
+                <MetricBarList
+                  items={schemaGraphItems}
+                  emptyLabel="No schema highlights available."
                 />
               </article>
               <article className="miniCard">
-                <h3>Schema highlights</h3>
-                <StudioSimpleList
-                  items={schemaHighlights.map((item: any) => ({
-                    label: item.column ?? "column",
-                    detail: `${item.type ?? "unknown"}${item.role ? ` | ${item.role}` : ""}`,
-                  }))}
-                  emptyLabel="No schema highlights available."
+                <h3>Missingness</h3>
+                <MetricBarList
+                  items={missingnessGraphItems}
+                  emptyLabel="No missingness summary available."
                 />
               </article>
             </div>
             <div className="resultSectionSplit">
               <article className="miniCard">
-                <h3>Missingness</h3>
+                <h3>Composition</h3>
                 <StudioSimpleList
-                  items={missingnessRows.map((item: any) => ({
-                    label: item.column ?? "column",
-                    detail: `${formatNumber(item.missing_count ?? item.missing)} missing (${typeof item.missing_rate === "number" ? `${(item.missing_rate * 100).toFixed(1)}%` : item.percent ?? "0%"})`,
-                  }))}
-                  emptyLabel="No missingness summary available."
+                  items={[
+                    { label: "Records", detail: formatNumber(artifact.composition?.record_count) },
+                    { label: "Fields", detail: formatNumber(artifact.composition?.field_count) },
+                    { label: "Categorical columns", detail: formatNumber((artifact.composition?.categorical_breakdowns ?? []).length) },
+                    { label: "Numeric columns", detail: formatNumber((artifact.composition?.numeric_breakdowns ?? []).length) },
+                  ]}
+                  emptyLabel="No composition summary available."
                 />
               </article>
               <article className="miniCard">
-                <h3>Subject preview</h3>
+                <h3>Top categorical values</h3>
                 <StudioSimpleList
-                  items={subjectRows.map((item: any) => ({
-                    label: String(item.subject_id ?? item.row ?? "row"),
-                    detail:
-                      Array.isArray(item.summary) && item.summary.length
-                        ? item.summary.join(" | ")
-                        : "No preview fields",
+                  items={(artifact.composition?.categorical_breakdowns ?? []).slice(0, 6).map((item: any) => ({
+                    label: item.column ?? "column",
+                    detail: Array.isArray(item.top_values)
+                      ? item.top_values.map((entry: any) => `${entry.label}: ${formatNumber(entry.count)}`).join(" | ")
+                      : "No values",
                   }))}
-                  emptyLabel="No subject preview available."
+                  emptyLabel="No categorical breakdown is available."
                 />
               </article>
             </div>
@@ -163,6 +197,7 @@ function CohortBrowserCard({
 }
 
 export function buildCustomStudioRendererRegistry({
+  activeStudioView,
   apiBase,
   analysis,
   prsPrepResultForStudio,
@@ -208,7 +243,7 @@ export function buildCustomStudioRendererRegistry({
   return {
     cohort_browser: () =>
       spreadsheetAnalysis ? (
-        <CohortBrowserCard analysis={spreadsheetAnalysis} components={components} helpers={helpers} />
+        <CohortBrowserCard activeView={activeStudioView} analysis={spreadsheetAnalysis} components={components} helpers={helpers} />
       ) : null,
     prs_prep: () =>
       prsPrepResultForStudio ? (

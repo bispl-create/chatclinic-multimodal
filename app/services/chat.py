@@ -678,7 +678,7 @@ def _is_korean(text: str) -> bool:
 
 
 def _flatten_studio_context(studio_context: dict) -> dict[str, object]:
-    return {
+    flattened = {
         "active_view": studio_context.get("active_view"),
         "qc_summary": studio_context.get("qc_summary"),
         "clinical_coverage": studio_context.get("clinical_coverage"),
@@ -690,6 +690,16 @@ def _flatten_studio_context(studio_context: dict) -> dict[str, object]:
         "snpeff_preview": studio_context.get("snpeff_preview"),
         "selected_annotation": studio_context.get("selected_annotation"),
     }
+    for key in (
+        "sheet_count",
+        "selected_sheet",
+        "sheet_names",
+        "sheet_details",
+        "current_sheet",
+    ):
+        if key in studio_context:
+            flattened[key] = studio_context.get(key)
+    return flattened
 
 
 def _has_studio_trigger(question: str) -> bool:
