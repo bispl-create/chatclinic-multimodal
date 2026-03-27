@@ -23,16 +23,6 @@ from app.models import (
     SamtoolsRequest,
     SnpEffRequest,
 )
-from app.services.gatk_liftover import (
-    DEFAULT_CHAIN_FILE,
-    DEFAULT_TARGET_FASTA,
-    run_gatk_liftover_vcf,
-)
-from app.services.ldblockshow import run_ldblockshow
-from app.services.plink import run_plink
-from app.services.r_vcf_plots import run_qqman_association
-from app.services.samtools import run_samtools
-from app.services.snpeff import run_snpeff
 from app.services.tool_runner import (
     load_tool_manifests,
     manifest_for_alias,
@@ -47,6 +37,16 @@ from app.services.workflows import (
     run_registered_raw_qc_workflow,
     run_registered_summary_stats_workflow,
 )
+from plugins.gatk_liftover_vcf_tool.logic import (
+    DEFAULT_CHAIN_FILE,
+    DEFAULT_TARGET_FASTA,
+    run_gatk_liftover_vcf,
+)
+from plugins.ldblockshow_execution_tool.logic import run_ldblockshow
+from plugins.plink_execution_tool.logic import run_plink
+from plugins.qqman_execution_tool.logic import run_qqman_association
+from plugins.samtools_execution_tool.logic import run_samtools
+from plugins.snpeff_execution_tool.logic import run_snpeff
 
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "45"))
 
