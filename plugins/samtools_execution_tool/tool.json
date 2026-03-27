@@ -1,5 +1,6 @@
 {
   "name": "samtools_execution_tool",
+  "entrypoint": "plugins.samtools_execution_tool.logic:execute",
   "description": "Run local samtools on BAM, SAM, or CRAM inputs and return deterministic alignment QC summaries such as flagstat, stats, and idxstats.",
   "task": "alignment-qc",
   "modality": "genomics",

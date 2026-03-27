@@ -1,5 +1,6 @@
 {
   "name": "gatk_liftover_vcf_tool",
+  "entrypoint": "plugins.gatk_liftover_vcf_tool.logic:execute",
   "description": "Run GATK LiftoverVcf on a local VCF.",
   "task": "vcf-liftover",
   "modality": "genomics",

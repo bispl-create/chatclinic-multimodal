@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models import ToolInfo
+from app.services.plugin_runtime import load_plugin_execute, serialize_plugin_result
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -166,6 +167,18 @@ def discover_tools() -> list[ToolInfo]:
 
 
 def run_tool(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    manifest = manifest_for_tool_name(tool_name)
+    if manifest is None:
+        raise FileNotFoundError(f"Tool manifest not found for {tool_name}")
+
+    entrypoint = str(manifest.get("entrypoint") or "").strip()
+    if entrypoint:
+        execute = load_plugin_execute(entrypoint)
+        result = serialize_plugin_result(execute(payload))
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Tool {tool_name} returned a non-dict result for entrypoint execution.")
+        return result
+
     tool_dir = _find_tool_dir(tool_name)
     run_path = tool_dir / "run.py"
     if not run_path.exists():

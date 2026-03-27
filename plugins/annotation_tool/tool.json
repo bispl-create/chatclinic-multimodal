@@ -1,5 +1,6 @@
 {
   "name": "annotation_tool",
+  "entrypoint": "plugins.annotation_tool.logic:execute",
   "description": "Generates transcript-aware variant annotations for a VCF analysis run.",
   "task": "annotation",
   "modality": "genomics",
