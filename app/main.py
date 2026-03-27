@@ -57,6 +57,7 @@ from app.models import (
 from app.services.chat import answer_analysis_chat, answer_raw_qc_chat, answer_summary_stats_chat, answer_text_chat
 from app.services.jobs import create_job, get_job, run_job
 from app.services.source_bootstrap import (
+    UPLOAD_ROOT,
     load_bootstrap_manifest,
     persist_uploaded_source_bytes,
     run_bootstrap_analysis,
@@ -470,6 +471,7 @@ def get_output_file(path: str = Query(..., description="Absolute path to a gener
         RPLOT_OUTPUT_DIR.resolve(),
         FASTQC_OUTPUT_DIR.resolve(),
         LDBLOCKSHOW_OUTPUT_DIR.resolve(),
+        (UPLOAD_ROOT / "text").resolve(),
     ]
     if not any(root == file_path or root in file_path.parents for root in allowed_roots):
         raise HTTPException(status_code=403, detail="Access to the requested file is not allowed.")
