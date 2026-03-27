@@ -45,6 +45,8 @@ from app.models import (
     SummaryStatsResponse,
     SourceFromPathRequest,
     ToolInfo,
+    ToolRunRequest,
+    ToolRunResponse,
     WorkflowAgentResponse,
     WorkflowReplyRequest,
     WorkflowStartRequest,
@@ -63,18 +65,14 @@ from app.services.source_registry import (
     source_upload_detail,
 )
 from app.services.tool_runner import discover_tools
+from app.services.tool_runner import manifest_for_alias, manifest_for_tool_name, run_tool
 from app.services.workflow_agent import interpret_workflow_reply, start_workflow
 from app.services.workflows import (
     analyze_prs_prep_workflow,
 )
 from plugins.fastqc_execution_tool.logic import FASTQC_OUTPUT_DIR
-from plugins.filtering_view_tool.logic import run_filter
-from plugins.gatk_liftover_vcf_tool.logic import run_gatk_liftover_vcf
-from plugins.ldblockshow_execution_tool.logic import LDBLOCKSHOW_OUTPUT_DIR, run_ldblockshow
-from plugins.plink_execution_tool.logic import run_plink
-from plugins.qqman_execution_tool.logic import RPLOT_OUTPUT_DIR, run_cmplot_association, run_qqman_association, run_r_vcf_plots
-from plugins.samtools_execution_tool.logic import run_samtools
-from plugins.snpeff_execution_tool.logic import run_snpeff
+from plugins.ldblockshow_execution_tool.logic import LDBLOCKSHOW_OUTPUT_DIR
+from plugins.qqman_execution_tool.logic import RPLOT_OUTPUT_DIR, run_cmplot_association, run_r_vcf_plots
 from plugins.summary_stats_review_tool.logic import load_summary_stats_rows
 
 
@@ -298,6 +296,34 @@ def _persist_and_bootstrap_upload(
     return _run_source_bootstrap(source_type, durable_path, file_name, **kwargs)
 
 
+def _resolve_tool_manifest(tool_ref: str) -> tuple[str, dict[str, object]]:
+    normalized = tool_ref.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Tool alias cannot be blank.")
+    manifest = manifest_for_alias(normalized) or manifest_for_tool_name(normalized)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"Unknown tool alias: {tool_ref}")
+    tool_name = str(manifest.get("name") or "").strip()
+    if not tool_name:
+        raise HTTPException(status_code=500, detail=f"Tool manifest is missing a name for alias: {tool_ref}")
+    return tool_name, manifest
+
+
+def _run_registered_tool_payload(tool_ref: str, payload: dict[str, object]) -> tuple[str, str, dict[str, object]]:
+    tool_name, manifest = _resolve_tool_manifest(tool_ref)
+    try:
+        result = run_tool(tool_name, payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"{tool_name} failed: {exc}") from exc
+    alias = tool_ref.strip().lower()
+    primary_aliases = _tool_aliases(manifest)
+    if primary_aliases:
+        alias = primary_aliases[0]
+    return tool_name, alias, result
+
+
 def _bootstrap_kwargs_for_source(
     source_type: str,
     *,
@@ -391,6 +417,12 @@ def get_tool_help(alias: str = Query(..., description="Tool alias such as snpeff
                 "help": _render_tool_help(manifest),
             }
     raise HTTPException(status_code=404, detail=f"Unknown tool alias: {alias}")
+
+
+@app.post("/api/v1/tools/{alias}/run", response_model=ToolRunResponse)
+def run_registered_tool_endpoint(alias: str, request: ToolRunRequest) -> ToolRunResponse:
+    tool_name, resolved_alias, result = _run_registered_tool_payload(alias, request.payload)
+    return ToolRunResponse(tool_name=tool_name, alias=resolved_alias, result=result)
 
 
 @app.get("/api/v1/files")
@@ -513,62 +545,38 @@ def continue_workflow(request: WorkflowReplyRequest) -> WorkflowAgentResponse:
 
 @app.post("/api/v1/filter/run", response_model=FilterResponse)
 def run_filtering(request: FilterRequest) -> FilterResponse:
-    try:
-        return run_filter(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Filtering failed: {exc}") from exc
+    _, _, result = _run_registered_tool_payload("filtering_view_tool", request.model_dump())
+    return FilterResponse(**result)
 
 
 @app.post("/api/v1/snpeff/run", response_model=SnpEffResponse)
 def run_snpeff_annotation(request: SnpEffRequest) -> SnpEffResponse:
-    try:
-        return run_snpeff(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"SnpEff failed: {exc}") from exc
+    _, _, result = _run_registered_tool_payload("snpeff", request.model_dump())
+    return SnpEffResponse(**result)
 
 
 @app.post("/api/v1/samtools/run", response_model=SamtoolsResponse)
 def run_samtools_alignment_qc(request: SamtoolsRequest) -> SamtoolsResponse:
-    try:
-        return run_samtools(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"samtools failed: {exc}") from exc
+    _, _, result = _run_registered_tool_payload("samtools", request.model_dump())
+    return SamtoolsResponse(**result)
 
 
 @app.post("/api/v1/plink/run", response_model=PlinkResponse)
 def run_plink_qc(request: PlinkRequest) -> PlinkResponse:
-    try:
-        return run_plink(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"PLINK 2 failed: {exc}") from exc
+    _, _, result = _run_registered_tool_payload("plink", request.model_dump())
+    return PlinkResponse(**result)
 
 
 @app.post("/api/v1/liftover/run", response_model=GatkLiftoverVcfResponse)
 def run_liftover_vcf(request: GatkLiftoverVcfRequest) -> GatkLiftoverVcfResponse:
-    try:
-        return run_gatk_liftover_vcf(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"GATK LiftoverVcf failed: {exc}") from exc
+    _, _, result = _run_registered_tool_payload("liftover", request.model_dump())
+    return GatkLiftoverVcfResponse(**result)
 
 
 @app.post("/api/v1/ldblockshow/run", response_model=LDBlockShowResponse)
 def run_ldblockshow_plot(request: LDBlockShowRequest) -> LDBlockShowResponse:
-    try:
-        return run_ldblockshow(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"LDBlockShow failed: {exc}") from exc
+    _, _, result = _run_registered_tool_payload("ldblockshow", request.model_dump())
+    return LDBlockShowResponse(**result)
 
 
 @app.post("/api/v1/r/plots", response_model=RPlotResponse)
@@ -583,22 +591,13 @@ def run_r_plots(request: RPlotRequest) -> RPlotResponse:
 
 @app.post("/api/v1/r/cmplot", response_model=RPlotResponse)
 def run_cmplot(request: CmplotAssociationRequest) -> RPlotResponse:
-    try:
-        return run_cmplot_association(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"CMplot association rendering failed: {exc}") from exc
+    return run_cmplot_association(request)
 
 
 @app.post("/api/v1/qqman/run", response_model=RPlotResponse)
 def run_qqman(request: QqmanAssociationRequest) -> RPlotResponse:
-    try:
-        return run_qqman_association(request)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"qqman association rendering failed: {exc}") from exc
+    _, _, result = _run_registered_tool_payload("qqman", request.model_dump())
+    return RPlotResponse(**result)
 
 
 @app.post("/api/v1/analysis/upload", response_model=AnalysisResponse)

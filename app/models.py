@@ -186,6 +186,16 @@ class ToolInfo(BaseModel):
     source: str = "plugin"
 
 
+class ToolRunRequest(BaseModel):
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolRunResponse(BaseModel):
+    tool_name: str
+    alias: str
+    result: dict[str, Any]
+
+
 class AnalysisResponse(BaseModel):
     analysis_id: str
     facts: AnalysisFacts
