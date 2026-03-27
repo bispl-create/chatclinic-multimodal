@@ -20,6 +20,18 @@ class _SafeFormatDict(dict[str, object]):
         return ""
 
 
+def workflow_studio_metadata(manifest: dict[str, object]) -> dict[str, object]:
+    studio = manifest.get("studio")
+    if isinstance(studio, dict):
+        payload = dict(studio)
+    else:
+        payload = {}
+    renderer = str(payload.get("renderer") or manifest.get("requested_view") or "").strip()
+    if renderer:
+        payload["renderer"] = renderer
+    return payload
+
+
 def assemble_analysis_response_from_vcf_context(context: dict[str, Any]) -> AnalysisResponse:
     facts: AnalysisFacts = context["facts"]
     annotations = list(context["annotations"])
@@ -157,6 +169,7 @@ def build_summary_stats_workflow_result(
         "answer": answer,
         "analysis": refreshed,
         "requested_view": requested_view,
+        "studio": workflow_studio_metadata(manifest),
     }
     if isinstance(prs_prep_result, PrsPrepResponse):
         result["prs_prep_result"] = prs_prep_result
@@ -174,6 +187,7 @@ def build_raw_qc_workflow_result(
         "answer": answer,
         "analysis": refreshed,
         "requested_view": requested_view,
+        "studio": workflow_studio_metadata(manifest),
     }
 
 
@@ -187,4 +201,5 @@ def build_analysis_workflow_result(
         "answer": answer,
         "analysis": analysis,
         "requested_view": requested_view,
+        "studio": workflow_studio_metadata(manifest),
     }

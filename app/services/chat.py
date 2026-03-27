@@ -30,6 +30,7 @@ from app.services.tool_runner import (
     tool_chat_metadata,
     tool_direct_chat_metadata,
 )
+from app.services.workflow_responses import workflow_studio_metadata
 from app.services.workflows import (
     run_registered_analysis_workflow,
     list_workflow_manifests,
@@ -378,12 +379,16 @@ def _assemble_workflow_chat_response(
 ) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse:
     response_kind = str(manifest.get("response_kind") or "").strip().lower()
     requested_view = str(workflow_result.get("requested_view") or manifest.get("requested_view") or "").strip() or None
+    studio = workflow_result.get("studio")
+    if not isinstance(studio, dict):
+        studio = workflow_studio_metadata(manifest)
     answer = _render_workflow_answer(manifest, workflow_result)
     if response_kind == "analysis_chat":
         return AnalysisChatResponse(
             answer=answer,
             citations=[],
             used_fallback=False,
+            studio=studio,
             requested_view=requested_view,
             analysis=workflow_result.get("analysis"),
         )
@@ -392,6 +397,7 @@ def _assemble_workflow_chat_response(
             answer=answer,
             citations=[],
             used_fallback=False,
+            studio=studio,
             requested_view=requested_view,
             analysis=workflow_result.get("analysis"),
         )
@@ -400,6 +406,7 @@ def _assemble_workflow_chat_response(
             answer=answer,
             citations=[],
             used_fallback=False,
+            studio=studio,
             requested_view=requested_view,
             analysis=workflow_result.get("analysis"),
             prs_prep_result=workflow_result.get("prs_prep_result"),
@@ -409,6 +416,8 @@ def _assemble_workflow_chat_response(
 
 def _with_result_field(result_kind: str | None, result: object, **kwargs: Any) -> dict[str, Any]:
     payload = dict(kwargs)
+    if result_kind:
+        payload["result_kind"] = result_kind
     if result_kind and result is not None:
         payload[result_kind] = result
     return payload
@@ -423,6 +432,7 @@ def _analysis_tool_response(
     used_fallback: bool = False,
     used_tools: list[str] | None = None,
     requested_view: str | None = None,
+    studio: dict[str, Any] | None = None,
     analysis: object = None,
 ) -> AnalysisChatResponse:
     return AnalysisChatResponse(
@@ -434,6 +444,7 @@ def _analysis_tool_response(
             used_fallback=used_fallback,
             used_tools=used_tools or [],
             requested_view=requested_view,
+            studio=studio,
             analysis=analysis,
         )
     )
@@ -447,6 +458,7 @@ def _raw_qc_tool_response(
     citations: list[str] | None = None,
     used_fallback: bool = False,
     requested_view: str | None = None,
+    studio: dict[str, Any] | None = None,
     analysis: object = None,
 ) -> RawQcChatResponse:
     return RawQcChatResponse(
@@ -457,6 +469,7 @@ def _raw_qc_tool_response(
             citations=citations or [],
             used_fallback=used_fallback,
             requested_view=requested_view,
+            studio=studio,
             analysis=analysis,
         )
     )
@@ -470,6 +483,7 @@ def _summary_stats_tool_response(
     citations: list[str] | None = None,
     used_fallback: bool = False,
     requested_view: str | None = None,
+    studio: dict[str, Any] | None = None,
     analysis: object = None,
 ) -> SummaryStatsChatResponse:
     return SummaryStatsChatResponse(
@@ -480,6 +494,7 @@ def _summary_stats_tool_response(
             citations=citations or [],
             used_fallback=used_fallback,
             requested_view=requested_view,
+            studio=studio,
             analysis=analysis,
         )
     )

@@ -129,6 +129,14 @@ def tool_direct_chat_metadata(manifest: dict[str, object]) -> dict[str, Any]:
     if not isinstance(direct_chat, dict):
         return {}
     payload = dict(direct_chat)
+    studio = payload.get("studio")
+    if not isinstance(studio, dict):
+        studio = {}
+    requested_view = str(payload.get("requested_view") or "").strip()
+    if requested_view and not str(studio.get("renderer") or "").strip():
+        studio = {**studio, "renderer": requested_view}
+    if studio:
+        payload["studio"] = studio
     payload.setdefault("source_type", next(iter(infer_tool_source_types(manifest)), ""))
     payload.setdefault("result_kind", infer_tool_result_kind(manifest))
     payload.setdefault("aliases", tool_aliases(manifest))

@@ -194,6 +194,7 @@ class ToolRunResponse(BaseModel):
     tool_name: str
     alias: str
     result: dict[str, Any]
+    studio: Optional[dict[str, Any]] = None
 
 
 class AnalysisResponse(BaseModel):
@@ -244,7 +245,9 @@ class AnalysisChatResponse(BaseModel):
     citations: list[str]
     used_fallback: bool
     used_tools: list[str] = []
+    result_kind: Optional[str] = None
     requested_view: Optional[str] = None
+    studio: Optional[dict[str, Any]] = None
     analysis: Optional[AnalysisResponse] = None
     plink_result: Optional[PlinkResponse] = None
     liftover_result: Optional[GatkLiftoverVcfResponse] = None
@@ -291,7 +294,9 @@ class RawQcChatResponse(BaseModel):
     answer: str
     citations: list[str]
     used_fallback: bool
+    result_kind: Optional[str] = None
     requested_view: Optional[str] = None
+    studio: Optional[dict[str, Any]] = None
     analysis: Optional[RawQcResponse] = None
     samtools_result: Optional[SamtoolsResponse] = None
 
@@ -352,7 +357,9 @@ class SummaryStatsChatResponse(BaseModel):
     answer: str
     citations: list[str]
     used_fallback: bool
+    result_kind: Optional[str] = None
     requested_view: Optional[str] = None
+    studio: Optional[dict[str, Any]] = None
     analysis: Optional[SummaryStatsResponse] = None
     qqman_result: Optional[RPlotResponse] = None
     prs_prep_result: Optional[PrsPrepResponse] = None

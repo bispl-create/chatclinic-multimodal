@@ -65,7 +65,7 @@ from app.services.source_registry import (
     source_upload_detail,
 )
 from app.services.tool_runner import discover_tools
-from app.services.tool_runner import manifest_for_alias, manifest_for_tool_name, run_tool
+from app.services.tool_runner import manifest_for_alias, manifest_for_tool_name, run_tool, tool_direct_chat_metadata
 from app.services.workflow_agent import interpret_workflow_reply, start_workflow
 from app.services.workflows import (
     analyze_prs_prep_workflow,
@@ -422,7 +422,10 @@ def get_tool_help(alias: str = Query(..., description="Tool alias such as snpeff
 @app.post("/api/v1/tools/{alias}/run", response_model=ToolRunResponse)
 def run_registered_tool_endpoint(alias: str, request: ToolRunRequest) -> ToolRunResponse:
     tool_name, resolved_alias, result = _run_registered_tool_payload(alias, request.payload)
-    return ToolRunResponse(tool_name=tool_name, alias=resolved_alias, result=result)
+    manifest = manifest_for_tool_name(tool_name)
+    direct_chat = tool_direct_chat_metadata(manifest)
+    studio = direct_chat.get("studio") if isinstance(direct_chat.get("studio"), dict) else None
+    return ToolRunResponse(tool_name=tool_name, alias=resolved_alias, result=result, studio=studio)
 
 
 @app.get("/api/v1/files")

@@ -352,6 +352,7 @@ type SummaryStatsChatResponse = {
   used_fallback: boolean;
   result_kind?: string | null;
   requested_view?: StudioView | null;
+  studio?: { renderer?: string | null } | null;
   analysis?: SummaryStatsResponse | null;
   qqman_result?: RPlotResponse | null;
   prs_prep_result?: PrsPrepResponse | null;
@@ -379,6 +380,7 @@ type AnalysisChatResponse = {
   used_tools?: string[];
   result_kind?: string | null;
   requested_view?: StudioView | null;
+  studio?: { renderer?: string | null } | null;
   analysis?: AnalysisResponse | null;
   plink_result?: AnalysisResponse["plink_result"];
   liftover_result?: AnalysisResponse["liftover_result"];
@@ -391,6 +393,7 @@ type RawQcChatResponse = {
   used_fallback: boolean;
   result_kind?: string | null;
   requested_view?: StudioView | null;
+  studio?: { renderer?: string | null } | null;
   analysis?: RawQcResponse | null;
   samtools_result?: RawQcResponse["samtools_result"];
 };

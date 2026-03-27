@@ -8,6 +8,7 @@ export type { StudioRendererBuilderArgs, StudioRendererRegistry } from "./studio
 export type StudioRendererDispatch = {
   requestedView?: string | null;
   resultKind?: string | null;
+  renderer?: string | null;
 };
 
 const STUDIO_RENDERER_METADATA: Record<string, { requestedViews?: string[]; resultKinds?: string[] }> = {
@@ -62,23 +63,29 @@ function findRendererKeyByResultKind(resultKind?: string | null): string | null 
 }
 
 export function resolveStudioDispatchFromPayload(payload: Record<string, unknown> | null | undefined): StudioRendererDispatch {
-  if (!payload) {
-    return {};
-  }
-  const requestedView =
-    typeof payload.requested_view === "string" && payload.requested_view.trim() ? payload.requested_view : null;
-  const explicitResultKind =
-    typeof payload.result_kind === "string" && payload.result_kind.trim() ? payload.result_kind : null;
-  if (explicitResultKind) {
-    return { requestedView, resultKind: explicitResultKind };
-  }
-  for (const metadata of Object.values(STUDIO_RENDERER_METADATA)) {
-    const matched = metadata.resultKinds?.find((kind) => payload[kind] != null);
-    if (matched) {
-      return { requestedView, resultKind: matched };
+    if (!payload) {
+        return {};
     }
-  }
-  return { requestedView };
+    const studio =
+      payload.studio && typeof payload.studio === "object" && !Array.isArray(payload.studio)
+        ? (payload.studio as Record<string, unknown>)
+        : null;
+    const requestedView =
+      typeof payload.requested_view === "string" && payload.requested_view.trim() ? payload.requested_view : null;
+    const renderer =
+      studio && typeof studio.renderer === "string" && studio.renderer.trim() ? studio.renderer : null;
+    const explicitResultKind =
+      typeof payload.result_kind === "string" && payload.result_kind.trim() ? payload.result_kind : null;
+    if (explicitResultKind) {
+      return { requestedView, resultKind: explicitResultKind, renderer };
+    }
+    for (const metadata of Object.values(STUDIO_RENDERER_METADATA)) {
+      const matched = metadata.resultKinds?.find((kind) => payload[kind] != null);
+      if (matched) {
+        return { requestedView, resultKind: matched, renderer };
+      }
+    }
+    return { requestedView, renderer };
 }
 
 export function resolveStudioRendererKey({
@@ -89,6 +96,7 @@ export function resolveStudioRendererKey({
   dispatch?: StudioRendererDispatch | null;
 }): string | null {
   return (
+    findRendererKeyByRequestedView(dispatch?.renderer) ??
     findRendererKeyByRequestedView(activeView) ??
     findRendererKeyByRequestedView(dispatch?.requestedView) ??
     findRendererKeyByResultKind(dispatch?.resultKind) ??
