@@ -6,10 +6,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from app.models import AnalysisResponse, RawQcResponse, SummaryStatsResponse
+from app.models import AnalysisResponse, RawQcResponse, SummaryStatsResponse, TextSourceResponse
 from app.services.workflows import (
     analyze_raw_qc_workflow,
     analyze_summary_stats_workflow,
+    analyze_text_workflow,
     analyze_vcf_workflow,
 )
 
@@ -58,6 +59,7 @@ BOOTSTRAP_RUNNERS: dict[str, Any] = {
     "vcf": analyze_vcf_workflow,
     "raw_qc": analyze_raw_qc_workflow,
     "summary_stats": analyze_summary_stats_workflow,
+    "text": analyze_text_workflow,
 }
 
 
@@ -66,7 +68,7 @@ def run_bootstrap_analysis(
     source_path: str,
     file_name: str,
     **kwargs: Any,
-) -> AnalysisResponse | RawQcResponse | SummaryStatsResponse:
+) -> AnalysisResponse | RawQcResponse | SummaryStatsResponse | TextSourceResponse:
     manifest = load_bootstrap_manifest(source_type)
     if manifest is None:
         raise ValueError(f"No bootstrap manifest is registered for source type: {source_type}")
@@ -89,4 +91,6 @@ def run_bootstrap_analysis(
             genome_build=kwargs.get("genome_build", "unknown"),
             trait_type=kwargs.get("trait_type", "unknown"),
         )
+    if source_type == "text":
+        return runner(source_path, file_name)
     raise NotImplementedError(f"Unsupported bootstrap source type: {source_type}")

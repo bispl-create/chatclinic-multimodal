@@ -1,0 +1,27 @@
+{
+  "name": "text_review",
+  "description": "Run the default text-note review workflow on the active text source.",
+  "source_type": "text",
+  "requested_view": "text",
+  "studio": {
+    "renderer": "text"
+  },
+  "response_kind": "text_chat",
+  "answer_template": "The {workflow_name} workflow was rerun on the active source.\n\n- Workflow: `{workflow_name}`\n- Active file: `{active_file}`\n- Logged tools: {logged_tools}\n- Lines: {line_count}\n- Words: {word_count}\n\nThe text review state has been refreshed. Open the Studio card or use `$studio ...` for grounded explanation of the current text source.",
+  "requires": [
+    "source_text_path"
+  ],
+  "produces": [
+    "text_analysis"
+  ],
+  "steps": [
+    {
+      "tool": "text_review_tool",
+      "bind": "analysis"
+    }
+  ],
+  "default_view": "text",
+  "notes": [
+    "This workflow establishes the initial review state for uploaded text notes and markdown documents."
+  ]
+}

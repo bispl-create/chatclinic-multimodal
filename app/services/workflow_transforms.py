@@ -13,6 +13,7 @@ from app.models import (
     SnpEffResponse,
     SummaryStatsResponse,
     SymbolicAltSummary,
+    TextSourceResponse,
     VariantAnnotation,
 )
 
@@ -43,4 +44,6 @@ def transform_bound_value(transform: str, value: Any) -> Any:
         return PrsPrepResponse(**dict(value or {}))
     if normalized == "raw_qc_response":
         return RawQcResponse(**dict(value or {}))
+    if normalized == "text_source_response":
+        return TextSourceResponse(**dict(value or {}))
     raise NotImplementedError(f"Unsupported workflow binding transform: {transform}")

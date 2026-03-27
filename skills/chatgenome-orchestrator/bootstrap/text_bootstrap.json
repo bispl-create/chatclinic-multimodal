@@ -1,0 +1,6 @@
+{
+  "name": "text_bootstrap",
+  "source_type": "text",
+  "upload_subdir": "text",
+  "runner": "text"
+}

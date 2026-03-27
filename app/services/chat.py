@@ -14,6 +14,8 @@ from app.models import (
     RawQcChatResponse,
     SummaryStatsChatRequest,
     SummaryStatsChatResponse,
+    TextChatRequest,
+    TextChatResponse,
 )
 from app.models import (
     GatkLiftoverVcfRequest,
@@ -37,6 +39,7 @@ from app.services.workflows import (
     load_workflow_manifest,
     run_registered_raw_qc_workflow,
     run_registered_summary_stats_workflow,
+    run_registered_text_workflow,
 )
 from plugins.gatk_liftover_vcf_tool.logic import (
     DEFAULT_CHAIN_FILE,
@@ -225,6 +228,8 @@ def _describe_source_type(source_type: str) -> str:
         return "raw-QC/alignment session"
     if normalized == "summary_stats":
         return "summary-statistics session"
+    if normalized == "text":
+        return "text-note session"
     return "current session"
 
 
@@ -236,6 +241,8 @@ def _tool_input_hint(source_type: str) -> str:
         return "active BAM/SAM/CRAM source"
     if normalized == "summary_stats":
         return "active summary-statistics source"
+    if normalized == "text":
+        return "active text source"
     return "active source"
 
 
@@ -278,7 +285,7 @@ def _unknown_tool_answer(tool_request: dict[str, object] | None) -> str:
     return f"`@{alias}` is not a registered ChatGenome tool."
 
 
-def _source_response_class(source_type: str) -> type[AnalysisChatResponse] | type[RawQcChatResponse] | type[SummaryStatsChatResponse]:
+def _source_response_class(source_type: str) -> type[AnalysisChatResponse] | type[RawQcChatResponse] | type[SummaryStatsChatResponse] | type[TextChatResponse]:
     normalized = source_type.strip().lower()
     if normalized == "vcf":
         return AnalysisChatResponse
@@ -286,6 +293,8 @@ def _source_response_class(source_type: str) -> type[AnalysisChatResponse] | typ
         return RawQcChatResponse
     if normalized == "summary_stats":
         return SummaryStatsChatResponse
+    if normalized == "text":
+        return TextChatResponse
     raise NotImplementedError(f"Unsupported chat source type: {source_type}")
 
 
@@ -302,7 +311,7 @@ def _basic_source_response(
 def _unknown_workflow_response(
     source_type: str,
     skill_request: dict[str, object],
-) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse:
+) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | TextChatResponse:
     name = str(skill_request.get("name") or "workflow")
     return _basic_source_response(
         source_type,
@@ -347,6 +356,16 @@ def _workflow_template_context(source_type: str, workflow_name: str, workflow_re
                 "dropped_rows": getattr(prs_prep_result, "dropped_rows", "unknown"),
             }
         )
+    elif source == "text":
+        analysis = workflow_result.get("analysis")
+        context.update(
+            {
+                "active_file": getattr(analysis, "file_name", "unknown"),
+                "logged_tools": ", ".join(getattr(analysis, "used_tools", []) or []) or "none",
+                "line_count": getattr(analysis, "line_count", "unknown"),
+                "word_count": getattr(analysis, "word_count", "unknown"),
+            }
+        )
     return context
 
 
@@ -371,12 +390,14 @@ def _run_registered_workflow_for_source(source_type: str, workflow_name: str, an
         return run_registered_raw_qc_workflow(workflow_name, analysis)
     if source == "summary_stats":
         return run_registered_summary_stats_workflow(workflow_name, analysis)
+    if source == "text":
+        return run_registered_text_workflow(workflow_name, analysis)
     raise NotImplementedError(f"Unsupported workflow source type: {source_type}")
 
 
 def _assemble_workflow_chat_response(
     manifest: dict[str, object], workflow_result: dict[str, object]
-) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse:
+) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | TextChatResponse:
     response_kind = str(manifest.get("response_kind") or "").strip().lower()
     requested_view = str(workflow_result.get("requested_view") or manifest.get("requested_view") or "").strip() or None
     studio = workflow_result.get("studio")
@@ -410,6 +431,15 @@ def _assemble_workflow_chat_response(
             requested_view=requested_view,
             analysis=workflow_result.get("analysis"),
             prs_prep_result=workflow_result.get("prs_prep_result"),
+        )
+    if response_kind == "text_chat":
+        return TextChatResponse(
+            answer=answer,
+            citations=[],
+            used_fallback=False,
+            studio=studio,
+            requested_view=requested_view,
+            analysis=workflow_result.get("analysis"),
         )
     raise NotImplementedError(f"Unsupported workflow response kind: {response_kind or 'unknown'}")
 
@@ -500,6 +530,31 @@ def _summary_stats_tool_response(
     )
 
 
+def _text_tool_response(
+    answer: str,
+    *,
+    result_kind: str | None = None,
+    result: object = None,
+    citations: list[str] | None = None,
+    used_fallback: bool = False,
+    requested_view: str | None = None,
+    studio: dict[str, Any] | None = None,
+    analysis: object = None,
+) -> TextChatResponse:
+    return TextChatResponse(
+        **_with_result_field(
+            result_kind,
+            result,
+            answer=answer,
+            citations=citations or [],
+            used_fallback=used_fallback,
+            requested_view=requested_view,
+            studio=studio,
+            analysis=analysis,
+        )
+    )
+
+
 def _render_skill_help(source_type: str | None = None, selected: dict[str, object] | None = None) -> str:
     manifests = list_workflow_manifests(source_type=source_type)
     if selected is not None:
@@ -567,6 +622,8 @@ def _render_skill_help(source_type: str | None = None, selected: dict[str, objec
     elif source_type == "summary_stats":
         lines.append("- `@skill summary_stats_review`")
         lines.append("- `@skill prs_prep`")
+    elif source_type == "text":
+        lines.append("- `@skill text_review`")
     else:
         lines.append("- `@skill help`")
         lines.append("- `@skill representative_vcf_review`")
@@ -766,6 +823,24 @@ def _compact_summary_stats_context(payload: SummaryStatsChatRequest) -> dict[str
     return context
 
 
+def _compact_text_context(payload: TextChatRequest) -> dict[str, object]:
+    context = {
+        "analysis_id": payload.analysis.analysis_id,
+        "file_name": payload.analysis.file_name,
+        "media_type": payload.analysis.media_type,
+        "char_count": payload.analysis.char_count,
+        "word_count": payload.analysis.word_count,
+        "line_count": payload.analysis.line_count,
+        "warnings": payload.analysis.warnings[:12],
+        "preview_lines": payload.analysis.preview_lines[:12],
+        "draft_answer": payload.analysis.draft_answer,
+        "used_tools": payload.analysis.used_tools,
+    }
+    if payload.studio_context:
+        context["studio_context"] = _flatten_studio_context(payload.studio_context)
+    return context
+
+
 CHAT_OPENAI_CONFIG: dict[str, dict[str, Any]] = {
     "vcf": {
         "context_label": "Analysis context JSON",
@@ -821,13 +896,28 @@ CHAT_OPENAI_CONFIG: dict[str, dict[str, Any]] = {
             "Answer from general knowledge only and ignore any uploaded summary-statistics context unless the user explicitly asks with a grounding trigger such as $studio."
         ),
     },
+    "text": {
+        "context_label": "Text-note context JSON",
+        "compact_context_builder": _compact_text_context,
+        "grounded_system_prompt": (
+            "You are a document and note-reading copilot. "
+            "The user explicitly requested grounded reasoning via a trigger such as $studio or $current analysis. "
+            "Answer only from the provided text-note context and do not invent unseen document details. "
+            "Be concise and explicit when the preview is partial."
+        ),
+        "general_system_prompt": (
+            "You are a helpful general assistant. "
+            "The user did not request grounded note reasoning. "
+            "Answer from general knowledge only and ignore any uploaded text-note context unless the user explicitly asks with a grounding trigger such as $studio."
+        ),
+    },
 }
 
 
 def _fallback_chat_answer(
     source_type: str,
     question: str,
-) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse:
+) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | TextChatResponse:
     if _has_studio_trigger(question):
         answer = (
             "I could not complete the grounded Studio response right now.\n\n"
@@ -858,8 +948,8 @@ def _extract_openai_output_text(result: dict[str, Any]) -> str:
 
 def _call_openai_for_source(
     source_type: str,
-    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest,
-) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse:
+    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest | TextChatRequest,
+) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | TextChatResponse:
     api_key = os.getenv("OPENAI_API_KEY")
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     if not api_key:
@@ -1323,14 +1413,15 @@ DIRECT_TOOL_ENDPOINT_EXECUTORS: dict[str, dict[str, Any]] = {
     "summary_stats": {
         "qqman": _execute_summary_stats_direct_qqman,
     },
+    "text": {},
 }
 
 
 def _run_direct_tool_for_source(
     source_type: str,
-    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest,
+    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest | TextChatRequest,
     tool_request: dict[str, object],
-) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | None:
+) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | TextChatResponse | None:
     direct_chat = _tool_request_direct_chat_metadata(tool_request)
     endpoint = str(direct_chat.get("endpoint") or "").strip().lower()
     executor = DIRECT_TOOL_ENDPOINT_EXECUTORS.get(source_type, {}).get(endpoint)
@@ -1345,9 +1436,9 @@ def _run_direct_tool_for_source(
 
 def _handle_at_tool_request_for_source(
     source_type: str,
-    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest,
+    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest | TextChatRequest,
     tool_request: dict[str, object],
-) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse:
+) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | TextChatResponse:
     manifest = tool_request.get("manifest")
     help_text = _resolve_tool_help_response(tool_request)
     if help_text is not None:
@@ -1365,9 +1456,9 @@ def _handle_at_tool_request_for_source(
 
 def _handle_skill_request_for_source(
     source_type: str,
-    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest,
+    payload: AnalysisChatRequest | RawQcChatRequest | SummaryStatsChatRequest | TextChatRequest,
     skill_request: dict[str, object],
-) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse:
+) -> AnalysisChatResponse | RawQcChatResponse | SummaryStatsChatResponse | TextChatResponse:
     manifest = skill_request.get("manifest")
     help_text = _resolve_skill_help_response(skill_request, source_type)
     if help_text is not None:
@@ -1528,4 +1619,50 @@ def answer_summary_stats_chat(payload: SummaryStatsChatRequest) -> SummaryStatsC
     except Exception:
         response = _fallback_chat_answer("summary_stats", payload.question)
         assert isinstance(response, SummaryStatsChatResponse)
+        return response
+
+
+def answer_text_chat(payload: TextChatRequest) -> TextChatResponse:
+    if _needs_grounded_clarification(payload.question):
+        return TextChatResponse(
+            answer=_grounded_clarification_text(),
+            citations=[],
+            used_fallback=False,
+        )
+
+    skill_request = _parse_skill_request(payload.question)
+    if skill_request:
+        try:
+            response = _handle_skill_request_for_source("text", payload, skill_request)
+            assert isinstance(response, TextChatResponse)
+            return response
+        except Exception as exc:
+            name = str(skill_request.get("name") or "workflow")
+            return TextChatResponse(
+                answer=f"`@skill {name}` execution failed: {exc}",
+                citations=[],
+                used_fallback=True,
+            )
+
+    at_tool_request = _parse_at_tool_request(payload.question)
+    if at_tool_request:
+        try:
+            response = _handle_at_tool_request_for_source("text", payload, at_tool_request)
+            assert isinstance(response, TextChatResponse)
+            return response
+        except Exception as exc:
+            alias = str(at_tool_request.get("alias") or "tool")
+            return TextChatResponse(
+                answer=f"`@{alias}` execution failed: {exc}",
+                citations=[],
+                used_fallback=True,
+            )
+
+    try:
+        response = _call_openai_for_source("text", payload)
+        assert isinstance(response, TextChatResponse)
+        return response
+    except Exception:
+        response = _fallback_chat_answer("text", payload.question)
+        assert isinstance(response, TextChatResponse)
         return response

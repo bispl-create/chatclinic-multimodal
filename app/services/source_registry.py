@@ -5,6 +5,28 @@ from pathlib import Path
 
 
 SOURCE_REGISTRY: dict[str, dict[str, object]] = {
+    "text": {
+        "upload_label": "text note",
+        "dedicated_upload_detail": "Only Markdown and plain-text note uploads such as .md, .markdown, .text, .note, and .log are supported.",
+        "bootstrap_source_type": "text",
+        "chat_response_kind": "text",
+        "workflow_names": ["text_review"],
+        "capabilities": ["source_upload", "bootstrap_analysis", "workflow", "grounded_chat"],
+        "suffixes": [
+            ".markdown",
+            ".md",
+            ".text",
+            ".note",
+            ".log",
+        ],
+        "file_kind_map": {
+            ".markdown": "TEXT",
+            ".md": "TEXT",
+            ".text": "TEXT",
+            ".note": "TEXT",
+            ".log": "TEXT",
+        },
+    },
     "raw_qc": {
         "upload_label": "raw sequencing file",
         "dedicated_upload_detail": "Only FASTQ, FASTQ.gz, FQ, FQ.gz, BAM, and SAM uploads are supported.",

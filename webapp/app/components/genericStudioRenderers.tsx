@@ -7,6 +7,7 @@ export function buildGenericStudioRendererRegistry({
   analysis,
   rawQcAnalysis,
   summaryStatsAnalysis,
+  textAnalysis,
   qqmanResultForStudio,
   samtoolsResultForStudio,
   snpeffResultForStudio,
@@ -191,6 +192,33 @@ export function buildGenericStudioRendererRegistry({
     references: () =>
       analysis ? (
         <section className="notebookPanel studioCanvasPanel"><div className="notebookHeader"><h2>References</h2></div><div className="studioCanvasBody"><ReferenceListCard items={analysis.references} /></div></section>
+      ) : null,
+    text: () =>
+      textAnalysis ? (
+        <section className="notebookPanel studioCanvasPanel">
+          <div className="notebookHeader"><h2>Text Review</h2></div>
+          <div className="studioCanvasBody">
+            <StudioMetricGrid
+              items={[
+                { label: "Media type", value: textAnalysis.media_type, tone: "good" },
+                { label: "Characters", value: String(textAnalysis.char_count) },
+                { label: "Words", value: String(textAnalysis.word_count) },
+                { label: "Lines", value: String(textAnalysis.line_count) },
+              ]}
+            />
+            <article className="miniCard">
+              <h3>Preview</h3>
+              <StudioSimpleList
+                items={(textAnalysis.preview_lines || []).map((line: string, index: number) => ({
+                  label: `Line ${index + 1}`,
+                  detail: line,
+                }))}
+                emptyLabel="No preview lines are available for this text source."
+              />
+            </article>
+            <WarningListCard warnings={textAnalysis.warnings} />
+          </div>
+        </section>
       ) : null,
   };
 }

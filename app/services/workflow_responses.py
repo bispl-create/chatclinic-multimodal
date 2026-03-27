@@ -9,6 +9,7 @@ from app.models import (
     PrsPrepResponse,
     RawQcResponse,
     SummaryStatsResponse,
+    TextSourceResponse,
 )
 from app.services.annotation import build_ui_cards
 from app.services.recommendation import build_recommendations
@@ -136,6 +137,18 @@ def workflow_answer_tokens(
             )
         return tokens
 
+    if source_type == "text" and isinstance(analysis, TextSourceResponse):
+        tokens.update(
+            {
+                "active_file": analysis.file_name,
+                "logged_tools": _stringify_logged_tools(getattr(analysis, "used_tools", []) or []),
+                "line_count": analysis.line_count,
+                "word_count": analysis.word_count,
+                "char_count": analysis.char_count,
+            }
+        )
+        return tokens
+
     return tokens
 
 
@@ -200,6 +213,21 @@ def build_analysis_workflow_result(
     return {
         "answer": answer,
         "analysis": analysis,
+        "requested_view": requested_view,
+        "studio": workflow_studio_metadata(manifest),
+    }
+
+
+def build_text_workflow_result(
+    manifest: dict[str, object],
+    context: dict[str, Any],
+) -> dict[str, object]:
+    refreshed: TextSourceResponse = context["analysis"]
+    requested_view = str(manifest.get("requested_view") or "text")
+    answer = format_workflow_answer(manifest, "text", refreshed, context)
+    return {
+        "answer": answer,
+        "analysis": refreshed,
         "requested_view": requested_view,
         "studio": workflow_studio_metadata(manifest),
     }

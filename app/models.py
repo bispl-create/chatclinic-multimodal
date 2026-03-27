@@ -365,6 +365,38 @@ class SummaryStatsChatResponse(BaseModel):
     prs_prep_result: Optional[PrsPrepResponse] = None
 
 
+class TextSourceResponse(BaseModel):
+    analysis_id: str
+    source_text_path: Optional[str] = None
+    file_name: str
+    media_type: str = "text/plain"
+    char_count: int = 0
+    word_count: int = 0
+    line_count: int = 0
+    preview_lines: list[str] = []
+    warnings: list[str] = []
+    draft_answer: str
+    used_tools: list[str] = []
+    tool_registry: list[ToolInfo] = []
+
+
+class TextChatRequest(BaseModel):
+    question: str
+    analysis: TextSourceResponse
+    history: list[ChatTurn] = []
+    studio_context: dict[str, Any] = {}
+
+
+class TextChatResponse(BaseModel):
+    answer: str
+    citations: list[str]
+    used_fallback: bool
+    result_kind: Optional[str] = None
+    requested_view: Optional[str] = None
+    studio: Optional[dict[str, Any]] = None
+    analysis: Optional[TextSourceResponse] = None
+
+
 class PrsPrepBuildCheck(BaseModel):
     inferred_build: str = "unknown"
     build_confidence: str = "low"
@@ -423,7 +455,7 @@ class WorkflowAgentResponse(BaseModel):
 
 
 class SourceReadyResponse(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text"]
     file_name: str
     source_path: str
     file_kind: Optional[str] = None

@@ -358,6 +358,31 @@ type SummaryStatsChatResponse = {
   prs_prep_result?: PrsPrepResponse | null;
 };
 
+type TextSourceResponse = {
+  analysis_id: string;
+  source_text_path?: string | null;
+  file_name: string;
+  media_type: string;
+  char_count: number;
+  word_count: number;
+  line_count: number;
+  preview_lines: string[];
+  warnings: string[];
+  draft_answer: string;
+  used_tools: string[];
+  tool_registry: AnalysisResponse["tool_registry"];
+};
+
+type TextChatResponse = {
+  answer: string;
+  citations: string[];
+  used_fallback: boolean;
+  result_kind?: string | null;
+  requested_view?: StudioView | null;
+  studio?: { renderer?: string | null } | null;
+  analysis?: TextSourceResponse | null;
+};
+
 type RPlotResponse = {
   tool: string;
   input_path: string;
@@ -416,13 +441,13 @@ type WorkflowManifest = {
 };
 
 type SourceReadyResponse = {
-  source_type: "vcf" | "raw_qc" | "summary_stats";
+  source_type: "vcf" | "raw_qc" | "summary_stats" | "text";
   file_name: string;
   source_path: string;
   file_kind?: string | null;
 };
 
-type SessionMode = "prs" | "vcf_analysis" | "raw_sequence";
+type SessionMode = "prs" | "vcf_analysis" | "raw_sequence" | "text_review";
 
 type PrsPrepResponse = {
   analysis_id: string;
@@ -478,6 +503,12 @@ const DEFAULT_WORKFLOW_REGISTRY: WorkflowManifest[] = [
     source_type: "summary_stats",
     default_view: "prs_prep",
   },
+  {
+    name: "text_review",
+    description: "Run the default text-note review workflow on the active text source.",
+    source_type: "text",
+    default_view: "text",
+  },
 ];
 
 const DEFAULT_LIFTOVER_CHAIN =
@@ -497,6 +528,7 @@ type AnalysisQuestionTurn = {
 };
 
 type StudioView =
+  | "text"
   | "candidates"
   | "acmg"
   | "provenance"
@@ -585,6 +617,17 @@ function isSummaryStatsFileName(fileName: string) {
     lowered.endsWith(".csv.gz") ||
     lowered.endsWith(".sumstats") ||
     lowered.endsWith(".sumstats.gz")
+  );
+}
+
+function isTextFileName(fileName: string) {
+  const lowered = fileName.toLowerCase();
+  return (
+    lowered.endsWith(".md") ||
+    lowered.endsWith(".markdown") ||
+    lowered.endsWith(".text") ||
+    lowered.endsWith(".note") ||
+    lowered.endsWith(".log")
   );
 }
 
@@ -1146,17 +1189,18 @@ export default function Page() {
     {
       role: "assistant",
       content:
-        "Select a session mode first. `@mode prs` starts the PRS workflow and expects two inputs: summary statistics and a target genotype. `@mode vcf_analysis` starts a single-input VCF variant interpretation session. `@mode raw_sequence` starts a FASTQ/BAM/SAM raw sequencing QC session. To see the available modes again, enter `@mode help`.",
+        "Select a session mode first. `@mode prs` starts the PRS workflow and expects two inputs: summary statistics and a target genotype. `@mode vcf_analysis` starts a single-input VCF variant interpretation session. `@mode raw_sequence` starts a FASTQ/BAM/SAM raw sequencing QC session. `@mode text_review` starts a text-note review session. To see the available modes again, enter `@mode help`.",
     },
   ]);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [rawQcAnalysis, setRawQcAnalysis] = useState<RawQcResponse | null>(null);
   const [summaryStatsAnalysis, setSummaryStatsAnalysis] = useState<SummaryStatsResponse | null>(null);
+  const [textAnalysis, setTextAnalysis] = useState<TextSourceResponse | null>(null);
   const [summaryStatsGridRows, setSummaryStatsGridRows] = useState<Array<Record<string, string>>>([]);
   const [summaryStatsHasMore, setSummaryStatsHasMore] = useState(false);
   const [summaryStatsRowsLoading, setSummaryStatsRowsLoading] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
-  const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | null>(null);
+  const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | "text" | null>(null);
   const [activeSource, setActiveSource] = useState<SourceReadyResponse | null>(null);
   const [sessionMode, setSessionMode] = useState<SessionMode | null>(null);
   const [pendingUploadRole, setPendingUploadRole] = useState<"default" | "prs_summary" | "prs_target">("default");
@@ -1207,6 +1251,8 @@ export default function Page() {
         ? rawQcAnalysis.tool_registry
         : summaryStatsAnalysis?.tool_registry?.length
           ? summaryStatsAnalysis.tool_registry
+        : textAnalysis?.tool_registry?.length
+          ? textAnalysis.tool_registry
         : toolRegistry;
   const availableWorkflows = useMemo(() => {
     const registry = workflowRegistry.length ? workflowRegistry : DEFAULT_WORKFLOW_REGISTRY;
@@ -1219,9 +1265,11 @@ export default function Page() {
             ? "raw_qc"
             : summaryStatsAnalysis
               ? "summary_stats"
+              : textAnalysis
+                ? "text"
               : attachedSourceType;
     return sourceType ? registry.filter((item) => item.source_type === sourceType) : registry;
-  }, [workflowRegistry, analysis, rawQcAnalysis, summaryStatsAnalysis, attachedSourceType, sessionMode]);
+  }, [workflowRegistry, analysis, rawQcAnalysis, summaryStatsAnalysis, textAnalysis, attachedSourceType, sessionMode]);
 
   const hasAttachedSource = Boolean(attachedFile || prsSummaryFile || prsTargetFile);
 
@@ -1412,7 +1460,7 @@ export default function Page() {
     fileInputRef.current?.click();
   }
 
-  function workflowHelpText(sourceType: "vcf" | "raw_qc" | "summary_stats" | null) {
+  function workflowHelpText(sourceType: "vcf" | "raw_qc" | "summary_stats" | "text" | null) {
     const registry = workflowRegistry.length ? workflowRegistry : DEFAULT_WORKFLOW_REGISTRY;
     const filtered = registry.filter((item) => !sourceType || item.source_type === sourceType);
     if (filtered.length === 0) {
@@ -1457,6 +1505,7 @@ export default function Page() {
       "- `@mode prs`: polygenic risk score workflow with two inputs (`summary statistics` and `target genotype VCF`).",
       "- `@mode vcf_analysis`: variant interpretation workflow with one VCF source.",
       "- `@mode raw_sequence`: raw sequencing QC workflow with one FASTQ/BAM/SAM source.",
+      "- `@mode text_review`: plain-text or markdown review workflow with one text source.",
     ].join("\n");
   }
 
@@ -1484,6 +1533,17 @@ export default function Page() {
         "Next steps:",
         "- Upload one VCF file",
         "- Run `@skill representative_vcf_review`",
+      ].join("\n");
+    }
+    if (mode === "text_review") {
+      return [
+        "**Text review mode**",
+        "",
+        "This session expects one Markdown or plain-text note source.",
+        "",
+        "Next steps:",
+        "- Upload one `.md`, `.markdown`, `.text`, `.note`, or `.log` file",
+        "- Run `@skill text_review`",
       ].join("\n");
     }
     return [
@@ -1527,6 +1587,8 @@ export default function Page() {
     const guessedSourceType =
       isRawQcFileName(file.name)
         ? "raw_qc"
+        : isTextFileName(file.name)
+          ? "text"
         : isSummaryStatsFileName(file.name) && !isVcfFileName(file.name)
           ? "summary_stats"
           : "vcf";
@@ -1538,26 +1600,33 @@ export default function Page() {
       setDirectQqmanResult(null);
       setDirectPrsPrepResult(null);
       setLatestPrsPrepResult(null);
+      setTextAnalysis(null);
     } else if (sessionMode === "prs" && slotRole === "prs_target") {
       setAnalysis(null);
       setDirectLiftoverResult(null);
       setDirectPlinkResult(null);
       setDirectSnpeffResult(null);
       setDirectLdblockshowResult(null);
+      setTextAnalysis(null);
     } else if (guessedSourceType === "vcf") {
       setAnalysis(null);
       setDirectLiftoverResult(null);
       setDirectPlinkResult(null);
       setDirectSnpeffResult(null);
       setDirectLdblockshowResult(null);
+      setTextAnalysis(null);
     } else if (guessedSourceType === "raw_qc") {
       setRawQcAnalysis(null);
       setDirectSamtoolsResult(null);
+      setTextAnalysis(null);
     } else if (guessedSourceType === "summary_stats") {
       setSummaryStatsAnalysis(null);
       setDirectQqmanResult(null);
       setDirectPrsPrepResult(null);
       setLatestPrsPrepResult(null);
+      setTextAnalysis(null);
+    } else if (guessedSourceType === "text") {
+      setTextAnalysis(null);
     }
     setFollowUpAnswer(null);
     setAnalysisQa([]);
@@ -1614,6 +1683,12 @@ export default function Page() {
       addMessage({
         role: "assistant",
         content: `Raw sequencing source \`${file.name}\` is loaded. Run \`@skill raw_qc_review\` to start the default review workflow, or \`@skill help\` to see available workflows.`,
+      });
+    } else if (guessedSourceType === "text") {
+      setStatus("Text source ready");
+      addMessage({
+        role: "assistant",
+        content: `Text source \`${file.name}\` is loaded. Run \`@skill text_review\` to start the default review workflow, or \`@skill help\` to see available workflows.`,
       });
     } else if (guessedSourceType === "summary_stats") {
       setStatus("Summary statistics source ready");
@@ -1994,6 +2069,7 @@ export default function Page() {
       const payload: RawQcResponse = await response.json();
       setRawQcAnalysis(payload);
       setAnalysis(null);
+      setTextAnalysis(null);
       activateStudioFromPayload({ requested_view: "rawqc" }, "rawqc");
       setStatus("Raw QC ready");
       setComposerText("");
@@ -2042,6 +2118,7 @@ export default function Page() {
       setSummaryStatsAnalysis(payload);
       setAnalysis(null);
       setRawQcAnalysis(null);
+      setTextAnalysis(null);
       activateStudioFromPayload({ requested_view: "sumstats" }, "sumstats");
       setStatus("Summary stats ready");
       setComposerText("");
@@ -2053,6 +2130,53 @@ export default function Page() {
       addMessage({
         role: "assistant",
         content: `Summary statistics intake 중 오류가 발생했습니다: ${message}`,
+      });
+      return null;
+    }
+  }
+
+  async function handleStartTextReview(
+    file: File,
+    options?: { silent?: boolean },
+  ): Promise<TextSourceResponse | null> {
+    const silent = options?.silent ?? false;
+    setError(null);
+    if (!silent) {
+      addMessage({
+        role: "assistant",
+        content: "Text note를 읽고 preview와 기본 길이 통계를 만들고 있습니다.",
+        kind: "status",
+      });
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/text/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload: TextSourceResponse = await response.json();
+      setTextAnalysis(payload);
+      setAnalysis(null);
+      setRawQcAnalysis(null);
+      setSummaryStatsAnalysis(null);
+      activateStudioFromPayload({ requested_view: "text" }, "text");
+      setStatus("Text review ready");
+      setComposerText("");
+      return payload;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setError(message);
+      setStatus("Text review failed");
+      addMessage({
+        role: "assistant",
+        content: `Text review 중 오류가 발생했습니다: ${message}`,
       });
       return null;
     }
@@ -2185,6 +2309,7 @@ export default function Page() {
 
       const payload: AnalysisResponse = await response.json();
       setAnalysis(payload);
+      setTextAnalysis(null);
       setFollowUpAnswer(null);
       setAnalysisQa([]);
       setActiveStudioView(null);
@@ -2254,6 +2379,12 @@ export default function Page() {
         addMessage({ role: "assistant", content: modeSelectionText("raw_sequence") });
         return;
       }
+      if (remainder === "text_review") {
+        setSessionMode("text_review");
+        setStatus("Text review mode selected");
+        addMessage({ role: "assistant", content: modeSelectionText("text_review") });
+        return;
+      }
       addMessage({ role: "assistant", content: `\`@mode ${remainder}\` is not available. Use \`@mode help\`.` });
       return;
     }
@@ -2262,13 +2393,13 @@ export default function Page() {
       addMessage({ role: "user", content: text });
       addMessage({
         role: "assistant",
-        content: sessionMode ? "먼저 현재 mode에 필요한 source 파일을 업로드해 주세요." : "먼저 `@mode prs`, `@mode vcf_analysis`, 또는 `@mode raw_sequence`를 선택한 뒤 source 파일을 업로드해 주세요.",
+        content: sessionMode ? "먼저 현재 mode에 필요한 source 파일을 업로드해 주세요." : "먼저 `@mode prs`, `@mode vcf_analysis`, `@mode raw_sequence`, 또는 `@mode text_review`를 선택한 뒤 source 파일을 업로드해 주세요.",
       });
       setComposerText("");
       return;
     }
 
-    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis) {
+    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !textAnalysis) {
       const skillMatch = text.match(/^@skill(?:\s+(.*))?$/i);
       if (skillMatch) {
         addMessage({ role: "user", content: text });
@@ -2315,6 +2446,14 @@ export default function Page() {
             return;
           }
           await handleStartSummaryStats(selectedSummaryStatsFile);
+          return;
+        }
+        if (workflowName === "text_review" && (sessionMode === "text_review" || attachedSourceType === "text")) {
+          if (!attachedFile) {
+            addMessage({ role: "assistant", content: "Upload a text source first." });
+            return;
+          }
+          await handleStartTextReview(attachedFile);
           return;
         }
         if (workflowName === "prs_prep" && (sessionMode === "prs" || attachedSourceType === "summary_stats")) {
@@ -2377,6 +2516,8 @@ export default function Page() {
         content:
           sessionMode === "prs"
             ? "PRS mode is active. Upload the summary-statistics and target-genotype sources as needed, then use `@skill prs_prep` and `@plink score`."
+            : sessionMode === "text_review"
+              ? "Text review mode is active. Upload a text source and run `@skill text_review`."
             : "A source is loaded, but no workflow is running yet. Use `@skill help` to see available workflows, then run one such as `@skill representative_vcf_review`.",
       });
       return;
@@ -2397,6 +2538,12 @@ export default function Page() {
     if (summaryStatsAnalysis) {
       setComposerText("");
       await handleAskSummaryStatsQuestion(text);
+      return;
+    }
+
+    if (textAnalysis) {
+      setComposerText("");
+      await handleAskTextQuestion(text);
       return;
     }
 
@@ -2694,6 +2841,48 @@ export default function Page() {
     }
   }
 
+  async function handleAskTextQuestion(questionText?: string, analysisOverride?: TextSourceResponse | null) {
+    const text = questionText?.trim() ?? "";
+    const activeAnalysis = analysisOverride ?? textAnalysis;
+    if (!text || !activeAnalysis) {
+      return;
+    }
+
+    setStatus("Generating answer...");
+    setAnalysisQa((current) => [...current, { role: "user", content: text }]);
+
+    try {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/chat/text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: text,
+          analysis: activeAnalysis,
+          history: analysisQa.map((turn) => ({ role: turn.role, content: turn.content })),
+          studio_context: studioContext,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload: TextChatResponse = await response.json();
+      if (payload.analysis) {
+        setTextAnalysis(payload.analysis);
+      }
+      activateStudioFromPayload(payload, "text");
+      setAnalysisQa((current) => [...current, { role: "assistant", content: payload.answer }]);
+      setFollowUpAnswer(payload.answer);
+      setStatus("Answer ready");
+    } catch (caught) {
+      const msg = caught instanceof Error ? caught.message : String(caught);
+      setAnalysisQa((current) => [
+        ...current,
+        { role: "assistant", content: `설명 요청 중 오류가 발생했습니다: ${msg}` },
+      ]);
+      setStatus("Answer failed");
+    }
+  }
+
   const searchedAnnotations = useMemo(() => {
     const query = annotationSearch.trim().toLowerCase();
     if (!analysis) {
@@ -2721,9 +2910,11 @@ export default function Page() {
       ? rawQcAnalysis.draft_answer
       : summaryStatsAnalysis
         ? summaryStatsAnalysis.draft_answer
+      : textAnalysis
+        ? textAnalysis.draft_answer
       : null;
   const displayedAnswer = followUpAnswer ?? summaryText;
-  const hasInteractiveState = Boolean(attachedFile || analysis || rawQcAnalysis || summaryStatsAnalysis || messages.length > 1);
+  const hasInteractiveState = Boolean(attachedFile || analysis || rawQcAnalysis || summaryStatsAnalysis || textAnalysis || messages.length > 1);
   const latestStatusMessage =
     [...messages].reverse().find((message) => message.kind === "status" || message.kind === "summary")?.content ?? "";
   const sourceStatusDetail = useMemo(() => {
@@ -2741,6 +2932,9 @@ export default function Page() {
     }
     if (status === "Loading summary statistics...") {
       return "Reading the summary statistics file, detecting columns, and preparing a post-GWAS review surface.";
+    }
+    if (status === "Text review ready") {
+      return "The uploaded text note has been summarized into a preview-oriented Studio review card.";
     }
     if (status === "Running Liftover...") {
       return "Running GATK LiftoverVcf on the active VCF and preparing lifted and rejected variant outputs.";
@@ -3091,6 +3285,7 @@ export default function Page() {
     analysis ||
       rawQcAnalysis ||
       summaryStatsAnalysis ||
+      textAnalysis ||
       prsPrepResultForStudio ||
       qqmanResultForStudio ||
       snpeffResultForStudio ||
@@ -3115,6 +3310,10 @@ export default function Page() {
           ...(qqmanResultForStudio
             ? [{ id: "qqman" as StudioView, title: "qqman Plots", subtitle: "Manhattan and QQ visualization" }]
             : []),
+        ]
+    : textAnalysis
+      ? [
+          { id: "text" as StudioView, title: "Text Review", subtitle: "Preview and note-length summary" },
         ]
     : analysis
       ? [
@@ -3168,6 +3367,7 @@ export default function Page() {
     analysis,
     rawQcAnalysis,
     summaryStatsAnalysis,
+    textAnalysis,
     prsPrepResultForStudio,
     qqmanResultForStudio,
     samtoolsResultForStudio,
@@ -3463,7 +3663,7 @@ export default function Page() {
                       </article>
                     ) : (
                       <div className="sourceEmpty">
-                        <p>Select a session mode with `@mode prs`, `@mode vcf_analysis`, or `@mode raw_sequence`.</p>
+                        <p>Select a session mode with `@mode prs`, `@mode vcf_analysis`, `@mode raw_sequence`, or `@mode text_review`.</p>
                       </div>
                     )}
                   </div>
@@ -3567,7 +3767,7 @@ export default function Page() {
               ) : (
                 <div className="chatEmptyState">
                   <h3>Select a mode first</h3>
-                  <p>Use <code>@mode prs</code>, <code>@mode vcf_analysis</code>, or <code>@mode raw_sequence</code>, then upload the required source files on the left.</p>
+                  <p>Use <code>@mode prs</code>, <code>@mode vcf_analysis</code>, <code>@mode raw_sequence</code>, or <code>@mode text_review</code>, then upload the required source files on the left.</p>
                 </div>
               )}
             </div>
@@ -3584,7 +3784,7 @@ export default function Page() {
                     ? "Start typing a follow-up question..."
                     : sessionMode
                       ? "Upload the required source files for the selected mode"
-                      : "Use @mode prs, @mode vcf_analysis, or @mode raw_sequence first"
+                      : "Use @mode prs, @mode vcf_analysis, @mode raw_sequence, or @mode text_review first"
                 }
                 onKeyDown={(event) => {
                   if (isComposing || event.nativeEvent.isComposing) {

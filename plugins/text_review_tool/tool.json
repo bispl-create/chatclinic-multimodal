@@ -1,0 +1,19 @@
+{
+  "name": "text_review_tool",
+  "entrypoint": "plugins.text_review_tool.logic:execute",
+  "description": "Read a plain-text note or markdown document into a compact review with preview lines and grounded summary guidance.",
+  "task": "text-review",
+  "modality": "text",
+  "approval_required": false,
+  "source": "plugin",
+  "workflow_binding": {
+    "source_type": "text",
+    "input_map": {
+      "text_path": "$source_text_path",
+      "file_name": "$file_name"
+    },
+    "result_path": "analysis",
+    "transform": "text_source_response",
+    "used_tools_label": "text_review_tool"
+  }
+}

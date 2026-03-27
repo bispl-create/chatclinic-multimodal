@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from app.models import AnalysisResponse, PrsPrepResponse, RawQcResponse, SummaryStatsResponse, SymbolicAltSummary, ToolInfo
+from app.models import AnalysisResponse, PrsPrepResponse, RawQcResponse, SummaryStatsResponse, SymbolicAltSummary, TextSourceResponse, ToolInfo
 from app.services.tool_runner import discover_tools, run_tool
 from app.services.workflow_fallbacks import compute_vcf_fallback_value
 from app.services.workflow_hooks import (
@@ -19,11 +19,13 @@ from app.services.workflow_responses import (
     build_analysis_workflow_result,
     build_raw_qc_workflow_result,
     build_summary_stats_workflow_result,
+    build_text_workflow_result,
 )
 from app.services.workflow_transforms import transform_bound_value
 from plugins.fastqc_execution_tool.logic import FASTQC_OUTPUT_DIR
 from plugins.prs_prep_tool.logic import analyze_prs_prep
 from plugins.summary_stats_review_tool.logic import analyze_summary_stats
+from plugins.text_review_tool.logic import analyze_text_source
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -354,6 +356,54 @@ def _run_registered_summary_stats_workflow_from_manifest(
     return build_summary_stats_workflow_result(analysis, manifest, context)
 
 
+def _text_workflow_context(
+    analysis: TextSourceResponse,
+) -> dict[str, Any]:
+    return {
+        "source_text_path": analysis.source_text_path,
+        "file_name": analysis.file_name,
+        "analysis": analysis,
+    }
+
+
+def _run_text_workflow_step(step: dict[str, Any], context: dict[str, Any]) -> None:
+    tool_name = str(step.get("tool") or "").strip()
+    bind_name = str(step.get("bind") or "").strip()
+    needs = [str(item).strip() for item in step.get("needs", []) if str(item).strip()]
+
+    for need in needs:
+        value = context.get(need)
+        if value in (None, "", []):
+            raise RuntimeError(f"Text workflow step `{tool_name}` is missing required context `{need}`.")
+    binding = _workflow_binding_for_tool(tool_name, source_type="text")
+    if binding is None:
+        raise NotImplementedError(f"Unsupported text workflow step tool: {tool_name}")
+    payload = _build_tool_payload_from_binding(binding, context)
+    result = run_tool(tool_name, payload)
+    value = _extract_tool_result_value(result, binding)
+    transformed_value = transform_bound_value(str(binding.get("transform") or "identity"), value)
+    context[bind_name] = transformed_value
+    used_tools_label = str(binding.get("used_tools_label") or tool_name).strip()
+    analysis_obj = context.get("analysis")
+    if used_tools_label and isinstance(analysis_obj, TextSourceResponse):
+        analysis_obj.used_tools.append(used_tools_label)
+
+
+def _run_registered_text_workflow_from_manifest(
+    analysis: TextSourceResponse,
+    manifest: dict[str, object],
+) -> dict[str, object]:
+    context = _text_workflow_context(analysis)
+    steps = manifest.get("steps")
+    if not isinstance(steps, list):
+        raise ValueError(f"Workflow {manifest.get('name')} does not define a valid step list.")
+    for step in steps:
+        if not isinstance(step, dict):
+            raise ValueError(f"Workflow {manifest.get('name')} contains a non-object step.")
+        _run_text_workflow_step(step, context)
+    return build_text_workflow_result(manifest, context)
+
+
 def _raw_qc_workflow_context(
     analysis: RawQcResponse,
 ) -> dict[str, Any]:
@@ -507,6 +557,13 @@ def analyze_summary_stats_workflow(
     return result
 
 
+def analyze_text_workflow(path: str, original_name: str) -> TextSourceResponse:
+    result = analyze_text_source(path, original_name)
+    result.analysis_id = str(uuid.uuid4())
+    result.tool_registry = discover_tools()
+    return result
+
+
 def analyze_prs_prep_workflow(
     path: str,
     original_name: str,
@@ -535,3 +592,23 @@ def run_registered_summary_stats_workflow(
         )
 
     return _run_registered_summary_stats_workflow_from_manifest(analysis, manifest)
+
+
+def run_registered_text_workflow(
+    workflow_name: str,
+    analysis: TextSourceResponse,
+) -> dict[str, object]:
+    manifest = load_workflow_manifest(workflow_name)
+    if manifest is None:
+        raise ValueError(f"Unknown text workflow: {workflow_name}")
+    source_type = str(manifest.get("source_type") or "").strip().lower()
+    if source_type != "text":
+        raise ValueError(f"Workflow {workflow_name} is not registered for text sources.")
+
+    requires = [str(item).strip() for item in manifest.get("requires", []) if str(item).strip()]
+    if "source_text_path" in requires and not analysis.source_text_path:
+        raise RuntimeError(
+            "The active text session does not expose a durable source file path, so this workflow cannot be rerun from chat."
+        )
+
+    return _run_registered_text_workflow_from_manifest(analysis, manifest)
