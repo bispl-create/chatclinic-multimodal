@@ -410,6 +410,26 @@ Upload sample files and confirm source classification is correct.
 
 - New source types can be added without special-case routing in core files.
 
+### Current Status
+
+Partially completed on branch `codex/generic_tool`:
+
+- a first source registry module was added:
+  - `app/services/source_registry.py`
+- the registry currently defines:
+  - `vcf`
+  - `raw_qc`
+  - `summary_stats`
+- upload endpoints in `main.py` now classify files through the source registry instead of
+  hard-coded filename helpers
+- source uploads now derive `source_type` and optional `file_kind` from registry metadata
+
+Remaining work for later stages:
+
+- move `/api/v1/analysis/from-path` style entrypoints behind the same source registry model
+- map source registry entries directly to bootstrap manifests and capabilities
+- extend the registry when multimodal source types are added
+
 ## Stage 8. Create a Generic Studio Renderer Layer
 
 ### Objective

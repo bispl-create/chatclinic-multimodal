@@ -64,6 +64,7 @@ from app.services.source_bootstrap import (
     persist_uploaded_source_bytes,
     run_bootstrap_analysis,
 )
+from app.services.source_registry import detect_source_registration, infer_source_file_kind
 from app.services.tool_runner import discover_tools
 from app.services.workflow_agent import interpret_workflow_reply, start_workflow
 from app.services.workflows import (
@@ -225,27 +226,6 @@ def _render_tool_help(manifest: dict[str, object]) -> str:
         lines.append("")
         lines.append(f"Aliases: {', '.join(alias_list)}")
     return "\n".join(lines).strip()
-
-
-def _is_raw_qc_filename(file_name: str) -> bool:
-    lowered = file_name.lower()
-    return lowered.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz", ".bam", ".sam"))
-
-
-def _is_summary_stats_filename(file_name: str) -> bool:
-    lowered = file_name.lower()
-    return lowered.endswith(
-        (
-            ".tsv",
-            ".tsv.gz",
-            ".txt",
-            ".txt.gz",
-            ".csv",
-            ".csv.gz",
-            ".sumstats",
-            ".sumstats.gz",
-        )
-    )
 
 
 def _safe_fastqc_artifact_path(path_str: str) -> Path:
@@ -477,9 +457,8 @@ async def analyze_upload(
     annotation_limit: Optional[int] = Form(None),
 ) -> AnalysisResponse:
     original_name = file.filename or "upload.vcf"
-    suffixes = Path(original_name).suffixes
-    combined_suffix = "".join(suffixes) or Path(original_name).suffix or ".vcf"
-    if not (combined_suffix.endswith(".vcf") or combined_suffix.endswith(".vcf.gz")):
+    detected = detect_source_registration(original_name)
+    if detected is None or detected[0] != "vcf":
         raise HTTPException(status_code=400, detail="Only .vcf and .vcf.gz uploads are supported.")
     if load_bootstrap_manifest("vcf") is None:
         raise HTTPException(status_code=500, detail="The VCF bootstrap manifest is not available.")
@@ -500,7 +479,8 @@ async def analyze_upload(
 @app.post("/api/v1/raw-qc/upload", response_model=RawQcResponse)
 async def analyze_raw_qc_upload(file: UploadFile = File(...)) -> RawQcResponse:
     filename = file.filename or "upload.fastq.gz"
-    if not _is_raw_qc_filename(filename):
+    detected = detect_source_registration(filename)
+    if detected is None or detected[0] != "raw_qc":
         raise HTTPException(
             status_code=400,
             detail="Only FASTQ, FASTQ.gz, FQ, FQ.gz, BAM, and SAM uploads are supported.",
@@ -518,7 +498,8 @@ async def analyze_summary_stats_upload(
     trait_type: str = Form("unknown"),
 ) -> SummaryStatsResponse:
     filename = file.filename or "summary_stats.tsv.gz"
-    if not _is_summary_stats_filename(filename):
+    detected = detect_source_registration(filename)
+    if detected is None or detected[0] != "summary_stats":
         raise HTTPException(
             status_code=400,
             detail="Only TSV/TXT/CSV summary statistics uploads are supported.",
@@ -541,38 +522,23 @@ async def analyze_summary_stats_upload(
 @app.post("/api/v1/source/upload", response_model=SourceReadyResponse)
 async def upload_active_source(file: UploadFile = File(...)) -> SourceReadyResponse:
     filename = file.filename or "upload.dat"
-
-    if _is_raw_qc_filename(filename):
-        durable_path = persist_uploaded_source_bytes("raw_qc", filename, await file.read())
-        file_kind = Path(filename).suffix.lower().lstrip(".") or "raw"
-        return SourceReadyResponse(
-            source_type="raw_qc",
-            file_name=filename,
-            source_path=str(durable_path),
-            file_kind=file_kind.upper(),
-        )
-
-    if _is_summary_stats_filename(filename) and not filename.lower().endswith((".vcf", ".vcf.gz")):
-        durable_path = persist_uploaded_source_bytes("summary_stats", filename, await file.read())
-        return SourceReadyResponse(
-            source_type="summary_stats",
-            file_name=filename,
-            source_path=str(durable_path),
-        )
-
-    suffixes = Path(filename).suffixes
-    combined_suffix = "".join(suffixes) or Path(filename).suffix or ".vcf"
-    if not (combined_suffix.endswith(".vcf") or combined_suffix.endswith(".vcf.gz")):
+    detected = detect_source_registration(filename)
+    if detected is None:
         raise HTTPException(
             status_code=400,
             detail="Unsupported source type. Upload a VCF, raw sequencing file, or summary statistics file.",
         )
-    durable_path = persist_uploaded_source_bytes("vcf", filename, await file.read())
-    return SourceReadyResponse(
-        source_type="vcf",
-        file_name=filename,
-        source_path=str(durable_path),
-    )
+    source_type, _, matched_suffix = detected
+    durable_path = persist_uploaded_source_bytes(source_type, filename, await file.read())
+    response_payload: dict[str, object] = {
+        "source_type": source_type,
+        "file_name": filename,
+        "source_path": str(durable_path),
+    }
+    file_kind = infer_source_file_kind(filename, source_type, matched_suffix)
+    if file_kind:
+        response_payload["file_kind"] = file_kind
+    return SourceReadyResponse(**response_payload)
 
 
 @app.post("/api/v1/summary-stats/rows", response_model=SummaryStatsRowsResponse)
