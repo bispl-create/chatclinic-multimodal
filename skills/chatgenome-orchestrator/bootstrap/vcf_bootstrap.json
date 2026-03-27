@@ -1,0 +1,6 @@
+{
+  "name": "vcf_bootstrap",
+  "source_type": "vcf",
+  "upload_subdir": "analysis",
+  "runner": "vcf"
+}

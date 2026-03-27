@@ -363,6 +363,26 @@ Upload and confirm initial cards/state for:
 
 - `main.py` becomes an API router plus generic bootstrap launcher.
 
+### Current Status
+
+Partially completed on branch `codex/generic_tool`:
+
+- bootstrap manifests were added for:
+  - `vcf`
+  - `raw_qc`
+  - `summary_stats`
+- bootstrap launcher logic was split into:
+  - `app/services/source_bootstrap.py`
+- upload endpoints in `main.py` now:
+  - persist files through the bootstrap module
+  - call a generic bootstrap analysis launcher by `source_type`
+- dead legacy upload helpers were removed from `main.py`
+
+Remaining work for later stages:
+
+- move `/api/v1/analysis/from-path` style entrypoints behind the same bootstrap/source registry model
+- introduce a first-class source registry instead of file-type helpers living in `main.py`
+
 ## Stage 7. Introduce a Generic Source Registry
 
 ### Objective

@@ -1,0 +1,6 @@
+{
+  "name": "summary_stats_bootstrap",
+  "source_type": "summary_stats",
+  "upload_subdir": "summary_stats",
+  "runner": "summary_stats"
+}

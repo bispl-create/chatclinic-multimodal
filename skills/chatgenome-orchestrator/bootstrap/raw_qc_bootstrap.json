@@ -1,0 +1,6 @@
+{
+  "name": "raw_qc_bootstrap",
+  "source_type": "raw_qc",
+  "upload_subdir": "raw_qc",
+  "runner": "raw_qc"
+}
