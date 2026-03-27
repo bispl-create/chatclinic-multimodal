@@ -4,7 +4,7 @@ import os
 import uuid
 import json
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Type, TypeVar, Union
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,13 +67,13 @@ from app.services.source_registry import (
 from app.services.tool_runner import discover_tools
 from app.services.tool_runner import manifest_for_alias, manifest_for_tool_name, run_tool, tool_direct_chat_metadata
 from app.services.workflow_agent import interpret_workflow_reply, start_workflow
-from app.services.workflows import (
-    analyze_prs_prep_workflow,
-)
 from plugins.fastqc_execution_tool.logic import FASTQC_OUTPUT_DIR
 from plugins.ldblockshow_execution_tool.logic import LDBLOCKSHOW_OUTPUT_DIR
 from plugins.qqman_execution_tool.logic import RPLOT_OUTPUT_DIR, run_cmplot_association, run_r_vcf_plots
 from plugins.summary_stats_review_tool.logic import load_summary_stats_rows
+
+
+ResponseT = TypeVar("ResponseT")
 
 
 def _load_local_env() -> None:
@@ -296,6 +296,21 @@ def _persist_and_bootstrap_upload(
     return _run_source_bootstrap(source_type, durable_path, file_name, **kwargs)
 
 
+def _typed_bootstrap_upload(
+    source_type: str,
+    file_name: str,
+    data: bytes,
+    response_type: Type[ResponseT],
+    error_detail: str,
+    **kwargs: object,
+) -> ResponseT:
+    _resolve_source_upload(file_name, expected_source_type=source_type)
+    result = _persist_and_bootstrap_upload(source_type, file_name, data, **kwargs)
+    if not isinstance(result, response_type):
+        raise HTTPException(status_code=500, detail=error_detail)
+    return result
+
+
 def _resolve_tool_manifest(tool_ref: str) -> tuple[str, dict[str, object]]:
     normalized = tool_ref.strip()
     if not normalized:
@@ -322,6 +337,22 @@ def _run_registered_tool_payload(tool_ref: str, payload: dict[str, object]) -> t
     if primary_aliases:
         alias = primary_aliases[0]
     return tool_name, alias, result
+
+
+def _run_registered_tool_model(
+    tool_ref: str,
+    payload: dict[str, object],
+    response_type: Type[ResponseT],
+    *,
+    result_key: str | None = None,
+) -> ResponseT:
+    _, _, result = _run_registered_tool_payload(tool_ref, payload)
+    materialized = result
+    if result_key:
+        nested = result.get(result_key)
+        if isinstance(nested, dict):
+            materialized = nested
+    return response_type(**materialized)
 
 
 def _bootstrap_kwargs_for_source(
@@ -548,38 +579,32 @@ def continue_workflow(request: WorkflowReplyRequest) -> WorkflowAgentResponse:
 
 @app.post("/api/v1/filter/run", response_model=FilterResponse)
 def run_filtering(request: FilterRequest) -> FilterResponse:
-    _, _, result = _run_registered_tool_payload("filtering_view_tool", request.model_dump())
-    return FilterResponse(**result)
+    return _run_registered_tool_model("filtering_view_tool", request.model_dump(), FilterResponse)
 
 
 @app.post("/api/v1/snpeff/run", response_model=SnpEffResponse)
 def run_snpeff_annotation(request: SnpEffRequest) -> SnpEffResponse:
-    _, _, result = _run_registered_tool_payload("snpeff", request.model_dump())
-    return SnpEffResponse(**result)
+    return _run_registered_tool_model("snpeff", request.model_dump(), SnpEffResponse)
 
 
 @app.post("/api/v1/samtools/run", response_model=SamtoolsResponse)
 def run_samtools_alignment_qc(request: SamtoolsRequest) -> SamtoolsResponse:
-    _, _, result = _run_registered_tool_payload("samtools", request.model_dump())
-    return SamtoolsResponse(**result)
+    return _run_registered_tool_model("samtools", request.model_dump(), SamtoolsResponse)
 
 
 @app.post("/api/v1/plink/run", response_model=PlinkResponse)
 def run_plink_qc(request: PlinkRequest) -> PlinkResponse:
-    _, _, result = _run_registered_tool_payload("plink", request.model_dump())
-    return PlinkResponse(**result)
+    return _run_registered_tool_model("plink", request.model_dump(), PlinkResponse)
 
 
 @app.post("/api/v1/liftover/run", response_model=GatkLiftoverVcfResponse)
 def run_liftover_vcf(request: GatkLiftoverVcfRequest) -> GatkLiftoverVcfResponse:
-    _, _, result = _run_registered_tool_payload("liftover", request.model_dump())
-    return GatkLiftoverVcfResponse(**result)
+    return _run_registered_tool_model("liftover", request.model_dump(), GatkLiftoverVcfResponse)
 
 
 @app.post("/api/v1/ldblockshow/run", response_model=LDBlockShowResponse)
 def run_ldblockshow_plot(request: LDBlockShowRequest) -> LDBlockShowResponse:
-    _, _, result = _run_registered_tool_payload("ldblockshow", request.model_dump())
-    return LDBlockShowResponse(**result)
+    return _run_registered_tool_model("ldblockshow", request.model_dump(), LDBlockShowResponse)
 
 
 @app.post("/api/v1/r/plots", response_model=RPlotResponse)
@@ -599,8 +624,7 @@ def run_cmplot(request: CmplotAssociationRequest) -> RPlotResponse:
 
 @app.post("/api/v1/qqman/run", response_model=RPlotResponse)
 def run_qqman(request: QqmanAssociationRequest) -> RPlotResponse:
-    _, _, result = _run_registered_tool_payload("qqman", request.model_dump())
-    return RPlotResponse(**result)
+    return _run_registered_tool_model("qqman", request.model_dump(), RPlotResponse)
 
 
 @app.post("/api/v1/analysis/upload", response_model=AnalysisResponse)
@@ -610,27 +634,27 @@ async def analyze_upload(
     annotation_limit: Optional[int] = Form(None),
 ) -> AnalysisResponse:
     original_name = file.filename or "upload.vcf"
-    _resolve_source_upload(original_name, expected_source_type="vcf")
-    result = _persist_and_bootstrap_upload(
+    return _typed_bootstrap_upload(
         "vcf",
         original_name,
         await file.read(),
+        AnalysisResponse,
+        "Unexpected bootstrap response type for VCF upload.",
         annotation_scope=annotation_scope,
         annotation_limit=annotation_limit,
     )
-    if not isinstance(result, AnalysisResponse):
-        raise HTTPException(status_code=500, detail="Unexpected bootstrap response type for VCF upload.")
-    return result
 
 
 @app.post("/api/v1/raw-qc/upload", response_model=RawQcResponse)
 async def analyze_raw_qc_upload(file: UploadFile = File(...)) -> RawQcResponse:
     filename = file.filename or "upload.fastq.gz"
-    _resolve_source_upload(filename, expected_source_type="raw_qc")
-    result = _persist_and_bootstrap_upload("raw_qc", filename, await file.read())
-    if not isinstance(result, RawQcResponse):
-        raise HTTPException(status_code=500, detail="Unexpected bootstrap response type for raw-QC upload.")
-    return result
+    return _typed_bootstrap_upload(
+        "raw_qc",
+        filename,
+        await file.read(),
+        RawQcResponse,
+        "Unexpected bootstrap response type for raw-QC upload.",
+    )
 
 
 @app.post("/api/v1/summary-stats/upload", response_model=SummaryStatsResponse)
@@ -640,17 +664,15 @@ async def analyze_summary_stats_upload(
     trait_type: str = Form("unknown"),
 ) -> SummaryStatsResponse:
     filename = file.filename or "summary_stats.tsv.gz"
-    _resolve_source_upload(filename, expected_source_type="summary_stats")
-    result = _persist_and_bootstrap_upload(
+    return _typed_bootstrap_upload(
         "summary_stats",
         filename,
         await file.read(),
+        SummaryStatsResponse,
+        "Unexpected bootstrap response type for summary-statistics upload.",
         genome_build=genome_build,
         trait_type=trait_type,
     )
-    if not isinstance(result, SummaryStatsResponse):
-        raise HTTPException(status_code=500, detail="Unexpected bootstrap response type for summary-statistics upload.")
-    return result
 
 
 @app.post("/api/v1/source/upload", response_model=SourceReadyResponse)
@@ -694,16 +716,12 @@ async def analyze_summary_stats_rows(request: SummaryStatsRowsRequest) -> Summar
 
 @app.post("/api/v1/prs-prep/run", response_model=PrsPrepResponse)
 async def run_prs_prep(request: PrsPrepRequest) -> PrsPrepResponse:
-    try:
-        return analyze_prs_prep_workflow(
-            request.source_stats_path,
-            request.file_name,
-            genome_build=request.genome_build,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"PRS prep failed: {exc}") from exc
+    return _run_registered_tool_model(
+        "prs_prep_tool",
+        request.model_dump(),
+        PrsPrepResponse,
+        result_key="prs_prep_result",
+    )
 
 
 @app.get("/api/v1/raw-qc/report")
