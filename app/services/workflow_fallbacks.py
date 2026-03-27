@@ -4,12 +4,12 @@ from typing import Any
 
 from app.models import AnalysisFacts, CountSummaryItem, DetailedCountSummaryItem, SymbolicAltSummary
 from app.services.annotation import build_draft_answer, build_ui_cards
-from app.services.candidate_ranking import build_ranked_candidates
 from app.services.recommendation import build_recommendations
 from app.services.references import build_reference_bundle
-from app.services.roh_analysis import run_roh_analysis
-from app.services.variant_annotation import annotate_variants
-from app.services.vcf_summary import summarize_vcf
+from plugins.annotation_tool.logic import annotate_variants
+from plugins.candidate_ranking_tool.logic import build_ranked_candidates
+from plugins.roh_analysis_tool.logic import run_roh_analysis
+from plugins.vcf_qc_tool.logic import summarize_vcf
 
 
 def compute_vcf_fallback_value(transform: str, context: dict[str, Any]) -> Any:

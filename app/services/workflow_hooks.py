@@ -5,9 +5,9 @@ from typing import Any
 
 from app.models import AnalysisFacts, VariantAnnotation
 from app.services.annotation import build_ui_cards
-from app.services.candidate_ranking import build_ranked_candidates
 from app.services.recommendation import build_recommendations
 from app.services.references import build_reference_bundle
+from plugins.candidate_ranking_tool.logic import build_ranked_candidates
 
 
 def snpeff_genome_from_build(genome_build_guess: str | None) -> str:
