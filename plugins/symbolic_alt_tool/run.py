@@ -1,37 +1,18 @@
 from __future__ import annotations
 
-import argparse
-import json
+import sys
 from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from app.services.plugin_runtime import run_plugin_cli  # noqa: E402
+from plugins.symbolic_alt_tool.logic import execute  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
-    annotations = payload.get("annotations", [])
-    symbolic = [
-        item
-        for item in annotations
-        if any(str(alt).startswith("<") and str(alt).endswith(">") for alt in item.get("alts", []))
-    ]
-    summary = {
-        "count": len(symbolic),
-        "examples": [
-            {
-                "locus": f"{item.get('contig')}:{item.get('pos_1based')}",
-                "gene": item.get("gene") or "",
-                "alts": item.get("alts", []),
-                "consequence": item.get("consequence") or "",
-                "genotype": item.get("genotype") or "",
-            }
-            for item in symbolic[:5]
-        ],
-    }
-    Path(args.output).write_text(json.dumps({"symbolic_alt_summary": summary}, ensure_ascii=False), encoding="utf-8")
+    run_plugin_cli(execute)
 
 
 if __name__ == "__main__":

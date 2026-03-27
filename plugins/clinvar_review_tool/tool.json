@@ -1,5 +1,6 @@
 {
   "name": "clinvar_review_tool",
+  "entrypoint": "plugins.clinvar_review_tool.logic:execute",
   "description": "Builds a compact ClinVar-style clinical significance distribution from annotated variants.",
   "task": "clinvar-review",
   "modality": "genomics",

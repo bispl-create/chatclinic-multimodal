@@ -1,33 +1,18 @@
 from __future__ import annotations
 
-import argparse
-import json
+import sys
 from pathlib import Path
 
-from app.models import AnalysisFacts, RecommendationItem, ReferenceItem, VariantAnnotation
-from app.services.annotation import build_draft_answer
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from app.services.plugin_runtime import run_plugin_cli  # noqa: E402
+from plugins.grounded_summary_tool.logic import execute  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
-    facts = AnalysisFacts(**payload["facts"])
-    annotations = [VariantAnnotation(**item) for item in payload.get("annotations", [])]
-    references = [ReferenceItem(**item) for item in payload.get("references", [])]
-    recommendations = [RecommendationItem(**item) for item in payload.get("recommendations", [])]
-
-    draft_answer = build_draft_answer(
-        facts,
-        annotations,
-        [item.id for item in references],
-        [item.id for item in recommendations],
-    )
-    result = {"draft_answer": draft_answer}
-    Path(args.output).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    run_plugin_cli(execute)
 
 
 if __name__ == "__main__":

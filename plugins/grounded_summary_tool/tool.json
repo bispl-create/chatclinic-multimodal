@@ -1,5 +1,6 @@
 {
   "name": "grounded_summary_tool",
+  "entrypoint": "plugins.grounded_summary_tool.logic:execute",
   "description": "Builds the grounded narrative summary from tool-derived genomics analysis state.",
   "task": "grounded-summary",
   "modality": "genomics",

@@ -1,5 +1,6 @@
 {
   "name": "symbolic_alt_tool",
+  "entrypoint": "plugins.symbolic_alt_tool.logic:execute",
   "description": "Separates symbolic ALT records into a dedicated review summary.",
   "task": "symbolic-alt-review",
   "modality": "genomics",

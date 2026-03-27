@@ -1,5 +1,6 @@
 {
   "name": "clinical_coverage_tool",
+  "entrypoint": "plugins.clinical_coverage_tool.logic:execute",
   "description": "Summarizes annotation completeness across ClinVar, gnomAD, gene, and HGVS fields.",
   "task": "clinical-coverage",
   "modality": "genomics",
