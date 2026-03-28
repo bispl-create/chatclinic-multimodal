@@ -1663,7 +1663,8 @@ export default function Page() {
       "",
       "Next steps:",
       "- Upload one raw sequencing file",
-      "- Run `@skill raw_qc_review`",
+      "- The raw QC review tool runs automatically after upload",
+      "- Open the Studio FastQC Review card to inspect QC modules and artifacts",
     ].join("\n");
   }
 
@@ -1873,6 +1874,29 @@ export default function Page() {
         return;
       }
 
+      if (guessedSourceType === "raw_qc") {
+        const payload = await handleStartRawQc(file, { silent: true });
+        if (!payload) {
+          event.target.value = "";
+          setPendingUploadRole("default");
+          return;
+        }
+        setActiveSource({
+          source_type: "raw_qc",
+          file_name: payload.facts.file_name,
+          source_path: payload.source_raw_path ?? "",
+          file_kind: payload.facts.file_kind,
+        });
+        setStatus("Raw QC review ready");
+        addMessage({
+          role: "assistant",
+          content: `Raw sequencing source \`${file.name}\` is loaded and reviewed automatically. Open the Studio FastQC Review card to inspect QC modules and report artifacts.`,
+        });
+        event.target.value = "";
+        setPendingUploadRole("default");
+        return;
+      }
+
       const source = await uploadActiveSource(file);
       setActiveSource(source);
       if (sessionMode === "prs") {
@@ -1916,13 +1940,7 @@ export default function Page() {
       setPendingUploadRole("default");
       return;
     }
-    if (guessedSourceType === "raw_qc") {
-      setStatus("Raw sequencing source ready");
-      addMessage({
-        role: "assistant",
-        content: `Raw sequencing source \`${file.name}\` is loaded. Run \`@skill raw_qc_review\` to start the default review workflow, or \`@skill help\` to see available workflows.`,
-      });
-    } else {
+    else {
       setStatus("VCF source ready");
       addMessage({
         role: "assistant",

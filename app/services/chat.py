@@ -697,7 +697,7 @@ def _render_skill_help(source_type: str | None = None, selected: dict[str, objec
     if source_type == "vcf":
         lines.append("- `@skill representative_vcf_review`")
     elif source_type == "raw_qc":
-        lines.append("- `@skill raw_qc_review`")
+        lines.append("- `@samtools`")
     elif source_type == "summary_stats":
         lines.append("- `@skill prs_prep`")
     else:

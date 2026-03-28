@@ -84,8 +84,8 @@ SOURCE_REGISTRY: dict[str, dict[str, object]] = {
         "studio_renderer": "rawqc",
         "studio_card_kind": "qc_review",
         "studio_preview_kind": "qc_modules",
-        "workflow_names": ["raw_qc_review"],
-        "capabilities": ["source_upload", "bootstrap_analysis", "direct_tool", "workflow"],
+        "workflow_names": [],
+        "capabilities": ["source_upload", "bootstrap_analysis", "direct_tool", "grounded_chat"],
         "suffixes": [
             ".fastq.gz",
             ".fq.gz",
