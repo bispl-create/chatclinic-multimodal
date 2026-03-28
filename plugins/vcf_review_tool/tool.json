@@ -1,0 +1,9 @@
+{
+  "name": "vcf_review_tool",
+  "entrypoint": "plugins.vcf_review_tool.logic:execute",
+  "description": "Runs VCF review as a composite pass over interpreted annotations: ClinVar, consequence, coverage, symbolic ALT, and grounded summary.",
+  "task": "vcf-review",
+  "modality": "genomics",
+  "approval_required": false,
+  "source": "plugin"
+}
