@@ -6,14 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "annotations": "$annotations"
-    },
-    "result_path": "symbolic_alt_summary",
-    "transform": "symbolic_alt_summary",
-    "used_tools_label": "symbolic_alt_tool",
-    "fallback_transform": "symbolic_alt_local"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -26,33 +25,13 @@ PLINK_BIN = Path(
 )
 
 
+from app.utils.parsing import maybe_float as _maybe_float
+from app.utils.parsing import maybe_int as _maybe_int
+from app.utils.parsing import safe_prefix as _safe_prefix_base
+
+
 def _safe_prefix(prefix: str | None, source_path: str) -> str:
-    raw = prefix or f"{Path(source_path).stem}.plink"
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", raw)
-
-
-def _maybe_float(value: str | None) -> float | None:
-    if value is None:
-        return None
-    text = value.strip()
-    if not text or text.upper() == "NA":
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
-def _maybe_int(value: str | None) -> int | None:
-    if value is None:
-        return None
-    text = value.strip()
-    if not text or text.upper() == "NA":
-        return None
-    try:
-        return int(float(text))
-    except ValueError:
-        return None
+    return _safe_prefix_base(prefix, source_path, tool="plink")
 
 
 def _parse_freq_rows(path: Path, limit: int) -> list[PlinkFreqRow]:

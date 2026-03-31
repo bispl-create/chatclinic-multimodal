@@ -6,14 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "annotations": "$annotations"
-    },
-    "result_path": "clinical_coverage_summary",
-    "transform": "detailed_count_summary_list",
-    "used_tools_label": "clinical_coverage_tool",
-    "fallback_transform": "clinical_coverage_local"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

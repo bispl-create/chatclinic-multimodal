@@ -85,13 +85,27 @@ def manifest_for_alias(alias: str | None) -> dict[str, object] | None:
 
 
 def infer_tool_source_types(manifest: dict[str, object]) -> list[str]:
-    workflow_binding = manifest.get("workflow_binding")
     source_types: set[str] = set()
-    if isinstance(workflow_binding, dict):
-        source_type = str(workflow_binding.get("source_type") or "").strip().lower()
-        if source_type:
-            source_types.add(source_type)
 
+    # Top-level source_types field (preferred)
+    top_level = manifest.get("source_types")
+    if isinstance(top_level, list):
+        for item in top_level:
+            value = str(item).strip().lower()
+            if value:
+                source_types.add(value)
+
+    # direct_chat.source_types fallback
+    direct_chat = manifest.get("direct_chat")
+    if isinstance(direct_chat, dict):
+        dc_types = direct_chat.get("source_types")
+        if isinstance(dc_types, list):
+            for item in dc_types:
+                value = str(item).strip().lower()
+                if value:
+                    source_types.add(value)
+
+    # orchestration.consumes fallback
     orchestration = manifest.get("orchestration")
     consumes = orchestration.get("consumes") if isinstance(orchestration, dict) else []
     if isinstance(consumes, list):
@@ -116,11 +130,6 @@ def infer_tool_result_kind(manifest: dict[str, object]) -> str | None:
         result_slot = str(routing.get("result_slot") or "").strip()
         if result_slot:
             return result_slot
-    workflow_binding = manifest.get("workflow_binding")
-    if isinstance(workflow_binding, dict):
-        result_path = str(workflow_binding.get("result_path") or "").strip()
-        if result_path:
-            return result_path
     return None
 
 

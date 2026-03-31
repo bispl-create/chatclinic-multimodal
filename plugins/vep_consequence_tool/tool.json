@@ -6,15 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "annotations": "$annotations",
-      "limit": 10
-    },
-    "result_path": "consequence_summary",
-    "transform": "count_summary_list",
-    "used_tools_label": "vep_consequence_tool",
-    "fallback_transform": "vep_consequence_local"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

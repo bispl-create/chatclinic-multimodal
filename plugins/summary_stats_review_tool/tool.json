@@ -6,16 +6,10 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "summary_stats",
-    "input_map": {
-      "source_stats_path": "$source_stats_path",
-      "file_name": "$file_name",
-      "genome_build": "$genome_build",
-      "trait_type": "$trait_type"
-    },
-    "result_path": "analysis",
-    "transform": "summary_stats_response",
-    "used_tools_label": "summary_stats_review_tool"
-  }
+  "source_types": [
+    "summary_stats"
+  ],
+  "initial_for": [
+    "summary_stats"
+  ]
 }

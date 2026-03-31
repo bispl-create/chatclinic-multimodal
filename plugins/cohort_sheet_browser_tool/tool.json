@@ -6,16 +6,22 @@
   "approval_required": false,
   "entrypoint": "plugins.cohort_sheet_browser_tool.logic:execute",
   "direct_chat": {
-    "aliases": ["cohort-browser", "cohort_sheet_browser"],
+    "aliases": [
+      "cohort-browser",
+      "cohort_sheet_browser"
+    ],
     "summary": "Analyze the active workbook into a cohort browser view for multi-sheet spreadsheets.",
     "studio": {
       "renderer": "cohort_browser"
-    }
+    },
+    "source_types": [
+      "spreadsheet"
+    ]
   },
-  "workflow_binding": {
-    "source_type": "spreadsheet",
-    "result_path": "analysis",
-    "transform": "spreadsheet_source_response",
-    "used_tools_label": "cohort_sheet_browser_tool"
-  }
+  "source_types": [
+    "spreadsheet"
+  ],
+  "initial_for": [
+    "spreadsheet"
+  ]
 }

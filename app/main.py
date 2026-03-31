@@ -58,9 +58,6 @@ from app.models import (
     ToolInfo,
     ToolRunRequest,
     ToolRunResponse,
-    WorkflowAgentResponse,
-    WorkflowReplyRequest,
-    WorkflowStartRequest,
 )
 from app.services.chat import (
     answer_analysis_chat,
@@ -86,7 +83,6 @@ from app.services.source_registry import (
 )
 from app.services.tool_runner import discover_tools
 from app.services.tool_runner import manifest_for_alias, manifest_for_tool_name, run_tool, tool_direct_chat_metadata
-from app.services.workflow_agent import interpret_workflow_reply, start_workflow
 from plugins.fastqc_execution_tool.logic import FASTQC_OUTPUT_DIR
 from plugins.ldblockshow_execution_tool.logic import LDBLOCKSHOW_OUTPUT_DIR
 from plugins.qqman_execution_tool.logic import RPLOT_OUTPUT_DIR, run_cmplot_association, run_r_vcf_plots
@@ -134,7 +130,6 @@ app.add_middleware(
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PLUGINS_DIR = ROOT_DIR / "plugins"
-WORKFLOWS_DIR = ROOT_DIR / "skills" / "chatgenome-orchestrator" / "workflows"
 
 
 def _load_tool_manifests() -> list[dict[str, object]]:
@@ -447,18 +442,6 @@ def list_registry_tools() -> list[ToolInfo]:
     return discover_tools()
 
 
-@app.get("/api/v1/workflows")
-def list_registry_workflows() -> list[dict[str, object]]:
-    manifests: list[dict[str, object]] = []
-    for manifest in sorted(WORKFLOWS_DIR.glob("*.json")):
-        try:
-            payload = json.loads(manifest.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if isinstance(payload, dict):
-            manifests.append(payload)
-    return manifests
-
 
 @app.get("/api/v1/tools/help")
 def get_tool_help(alias: str = Query(..., description="Tool alias such as snpeff, samtools, liftover, plink")) -> dict[str, object]:
@@ -610,15 +593,6 @@ def chat_about_dicom(request: DicomChatRequest) -> DicomChatResponse:
 def chat_about_spreadsheet(request: SpreadsheetChatRequest) -> SpreadsheetChatResponse:
     return answer_spreadsheet_chat(request)
 
-
-@app.post("/api/v1/workflow/start", response_model=WorkflowAgentResponse)
-def begin_workflow(request: WorkflowStartRequest) -> WorkflowAgentResponse:
-    return start_workflow(request)
-
-
-@app.post("/api/v1/workflow/reply", response_model=WorkflowAgentResponse)
-def continue_workflow(request: WorkflowReplyRequest) -> WorkflowAgentResponse:
-    return interpret_workflow_reply(request)
 
 
 @app.post("/api/v1/filter/run", response_model=FilterResponse)

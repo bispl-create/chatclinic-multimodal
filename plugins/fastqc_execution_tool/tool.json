@@ -7,8 +7,19 @@
   "approval_required": false,
   "source": "local",
   "routing": {
-    "trigger_keywords": ["fastqc", "raw qc", "quality control"],
-    "execution_intents": ["run", "execute", "qc", "실행", "돌려", "검사"],
+    "trigger_keywords": [
+      "fastqc",
+      "raw qc",
+      "quality control"
+    ],
+    "execution_intents": [
+      "run",
+      "execute",
+      "qc",
+      "실행",
+      "돌려",
+      "검사"
+    ],
     "requires_source_vcf": false,
     "question_argument": "none",
     "result_slot": "rawqc_result",
@@ -18,15 +29,24 @@
     "tool_kind": "execution",
     "default_stage": "pre-variant-analysis",
     "depends_on": [],
-    "consumes": ["raw_sequence_file"],
-    "produces": ["rawqc_result"],
+    "consumes": [
+      "raw_sequence_file"
+    ],
+    "produces": [
+      "rawqc_result"
+    ],
     "priority": 90,
     "on_demand": false
   },
   "runtime": {
-    "host_compatible": ["cpu"],
+    "host_compatible": [
+      "cpu"
+    ],
     "requires_gpu": false,
     "allow_cpu_fallback": true,
     "estimated_runtime_sec": 10
-  }
+  },
+  "initial_for": [
+    "raw_qc"
+  ]
 }

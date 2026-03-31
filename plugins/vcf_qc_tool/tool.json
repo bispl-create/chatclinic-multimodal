@@ -8,19 +8,18 @@
   "source": "internal",
   "direct_chat": {
     "endpoint": "vcf-qc",
-    "source_types": ["vcf"],
+    "source_types": [
+      "vcf"
+    ],
     "requested_view": "qc",
-    "studio": {"renderer": "qc"}
+    "studio": {
+      "renderer": "qc"
+    }
   },
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "vcf_path": "$source_vcf_path",
-      "max_examples": "$max_examples"
-    },
-    "result_path": "facts",
-    "transform": "analysis_facts",
-    "used_tools_label": "vcf_qc_tool",
-    "fallback_transform": "vcf_qc_summary"
-  }
+  "source_types": [
+    "vcf"
+  ],
+  "initial_for": [
+    "vcf"
+  ]
 }

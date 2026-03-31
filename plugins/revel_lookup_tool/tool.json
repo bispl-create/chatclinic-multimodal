@@ -6,16 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "local",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "annotations": "$annotations",
-      "genome_build_guess": "$facts.genome_build_guess"
-    },
-    "preprocess": "vcf_shortlist_annotations",
-    "result_path": "annotations",
-    "transform": "variant_annotation_list",
-    "postprocess": "vcf_merge_lookup_annotations",
-    "used_tools_label": "revel_lookup_tool"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

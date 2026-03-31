@@ -6,16 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "facts": "$facts",
-      "annotations": "$annotations"
-    },
-    "preprocess": "vcf_prepare_grounded_summary_inputs",
-    "result_path": "draft_answer",
-    "transform": "identity",
-    "used_tools_label": "grounded_summary_tool",
-    "fallback_transform": "grounded_summary_local"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

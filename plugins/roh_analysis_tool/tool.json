@@ -6,14 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "internal",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "vcf_path": "$source_vcf_path"
-    },
-    "result_path": "roh_segments",
-    "transform": "roh_segment_list",
-    "used_tools_label": "roh_analysis_tool",
-    "fallback_transform": "roh_local"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

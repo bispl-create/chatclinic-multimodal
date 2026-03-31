@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -30,9 +29,7 @@ LOCAL_GATK_JAR = Path(
 )
 
 
-def _safe_prefix(prefix: str | None, source_path: str, tool: str) -> str:
-    raw = prefix or f"{Path(source_path).stem}.{tool}"
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", raw)
+from app.utils.parsing import safe_prefix as _safe_prefix
 
 
 def _ensure_paths(request: FilterRequest) -> tuple[Path, Path]:

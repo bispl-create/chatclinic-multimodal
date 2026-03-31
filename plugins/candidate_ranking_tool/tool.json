@@ -6,16 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "annotations": "$annotations",
-      "roh_segments": "$roh_segments",
-      "limit": 8
-    },
-    "result_path": "candidate_variants",
-    "transform": "ranked_candidate_list",
-    "used_tools_label": "candidate_ranking_tool",
-    "fallback_transform": "candidate_ranking_local"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

@@ -6,14 +6,7 @@
   "modality": "genomics",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "annotations": "$annotations"
-    },
-    "result_path": "clinvar_summary",
-    "transform": "count_summary_list",
-    "used_tools_label": "clinvar_review_tool",
-    "fallback_transform": "clinvar_summary_local"
-  }
+  "source_types": [
+    "vcf"
+  ]
 }

@@ -45,17 +45,6 @@ from app.services.tool_runner import (
     tool_chat_metadata,
     tool_direct_chat_metadata,
 )
-from app.services.workflow_responses import workflow_studio_metadata
-from app.services.workflows import (
-    run_registered_analysis_workflow,
-    list_workflow_manifests,
-    load_workflow_manifest,
-    run_registered_dicom_workflow,
-    run_registered_raw_qc_workflow,
-    run_registered_spreadsheet_workflow,
-    run_registered_summary_stats_workflow,
-    run_registered_text_workflow,
-)
 from plugins.gatk_liftover_vcf_tool.logic import (
     DEFAULT_CHAIN_FILE,
     DEFAULT_TARGET_FASTA,
@@ -79,8 +68,6 @@ def _parse_at_tool_request(question: str) -> dict[str, object] | None:
     if not match:
         return None
     raw_alias = match.group(1).strip().lower()
-    if raw_alias == "skill":
-        return None
     remainder = (match.group(2) or "").strip()
     lowered = remainder.lower()
     manifest = manifest_for_alias(raw_alias)
@@ -105,33 +92,6 @@ def _parse_at_tool_request(question: str) -> dict[str, object] | None:
         "is_help": False,
     }
 
-
-def _parse_skill_request(question: str) -> dict[str, object] | None:
-    stripped = question.strip()
-    match = re.match(r"^@skill(?:\s+(.*))?$", stripped, flags=re.DOTALL | re.IGNORECASE)
-    if not match:
-        return None
-    remainder = (match.group(1) or "").strip()
-    lowered = remainder.lower()
-    if not remainder or lowered in {"help", "--help", "-h"}:
-        return {
-            "name": None,
-            "input_name": None,
-            "manifest": None,
-            "remainder": remainder,
-            "is_help": True,
-        }
-    input_name = remainder.split()[0].strip()
-    is_help = remainder.lower().endswith(" help")
-    manifest = load_workflow_manifest(input_name)
-    canonical_name = str(manifest.get("name") or input_name) if isinstance(manifest, dict) else input_name
-    return {
-        "name": canonical_name,
-        "input_name": input_name,
-        "manifest": manifest,
-        "remainder": remainder,
-        "is_help": is_help,
-    }
 
 
 def _render_tool_help(manifest: dict[str, object]) -> str:
@@ -311,21 +271,21 @@ def _unknown_tool_answer(tool_request: dict[str, object] | None) -> str:
     return f"`@{alias}` is not a registered ChatGenome tool."
 
 
-def _source_response_class(source_type: str) -> type[AnalysisChatResponse] | type[DicomChatResponse] | type[RawQcChatResponse] | type[SpreadsheetChatResponse] | type[SummaryStatsChatResponse] | type[TextChatResponse]:
-    normalized = source_type.strip().lower()
-    if normalized == "vcf":
-        return AnalysisChatResponse
-    if normalized == "raw_qc":
-        return RawQcChatResponse
-    if normalized == "summary_stats":
-        return SummaryStatsChatResponse
-    if normalized == "dicom":
-        return DicomChatResponse
-    if normalized == "text":
-        return TextChatResponse
-    if normalized == "spreadsheet":
-        return SpreadsheetChatResponse
-    raise NotImplementedError(f"Unsupported chat source type: {source_type}")
+SOURCE_CHAT_RESPONSE_CLASS: dict[str, type] = {
+    "vcf": AnalysisChatResponse,
+    "raw_qc": RawQcChatResponse,
+    "summary_stats": SummaryStatsChatResponse,
+    "dicom": DicomChatResponse,
+    "text": TextChatResponse,
+    "spreadsheet": SpreadsheetChatResponse,
+}
+
+
+def _source_response_class(source_type: str) -> type:
+    cls = SOURCE_CHAT_RESPONSE_CLASS.get(source_type.strip().lower())
+    if cls is None:
+        raise NotImplementedError(f"Unsupported chat source type: {source_type}")
+    return cls
 
 
 def _basic_source_response(
@@ -337,189 +297,6 @@ def _basic_source_response(
     response_cls = _source_response_class(source_type)
     return response_cls(source_type=source_type, answer=answer, citations=[], used_fallback=used_fallback)
 
-
-def _unknown_workflow_response(
-    source_type: str,
-    skill_request: dict[str, object],
-) -> AnalysisChatResponse | DicomChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse:
-    name = str(skill_request.get("name") or "workflow")
-    return _basic_source_response(
-        source_type,
-        f"`@skill {name}` is not a registered workflow for the current build.",
-    )
-
-
-def _workflow_template_context(source_type: str, workflow_name: str, workflow_result: dict[str, object]) -> dict[str, object]:
-    source = source_type.strip().lower()
-    context: dict[str, object] = {
-        "workflow_name": workflow_name,
-        "requested_view": str(workflow_result.get("requested_view") or ""),
-    }
-    if source == "vcf":
-        analysis = workflow_result.get("analysis")
-        context.update(
-            {
-                "active_file": getattr(getattr(analysis, "facts", None), "file_name", "unknown"),
-                "logged_tools": ", ".join(getattr(analysis, "used_tools", []) or []) or "none",
-                "candidate_count": len(getattr(analysis, "candidate_variants", []) or []),
-            }
-        )
-    elif source == "raw_qc":
-        analysis = workflow_result.get("analysis")
-        context.update(
-            {
-                "active_file": getattr(getattr(analysis, "facts", None), "file_name", "unknown"),
-                "logged_tools": ", ".join(getattr(analysis, "used_tools", []) or []) or "none",
-                "module_count": len(getattr(analysis, "modules", []) or []),
-            }
-        )
-    elif source == "summary_stats":
-        analysis = workflow_result.get("analysis")
-        prs_prep_result = workflow_result.get("prs_prep_result")
-        context.update(
-            {
-                "active_file": getattr(analysis, "file_name", "unknown"),
-                "logged_tools": ", ".join(getattr(analysis, "used_tools", []) or []) or "none",
-                "row_count": getattr(analysis, "row_count", "unknown"),
-                "score_file_ready": getattr(prs_prep_result, "score_file_ready", "unknown"),
-                "kept_rows": getattr(prs_prep_result, "kept_rows", "unknown"),
-                "dropped_rows": getattr(prs_prep_result, "dropped_rows", "unknown"),
-            }
-        )
-    elif source == "text":
-        analysis = workflow_result.get("analysis")
-        context.update(
-            {
-                "active_file": getattr(analysis, "file_name", "unknown"),
-                "logged_tools": ", ".join(getattr(analysis, "used_tools", []) or []) or "none",
-                "line_count": getattr(analysis, "line_count", "unknown"),
-                "word_count": getattr(analysis, "word_count", "unknown"),
-            }
-        )
-    elif source == "spreadsheet":
-        analysis = workflow_result.get("analysis")
-        context.update(
-            {
-                "active_file": getattr(analysis, "file_name", "unknown"),
-                "logged_tools": ", ".join(getattr(analysis, "used_tools", []) or []) or "none",
-                "sheet_count": getattr(analysis, "sheet_count", "unknown"),
-                "selected_sheet": getattr(analysis, "selected_sheet", "unknown"),
-            }
-        )
-    elif source == "dicom":
-        analysis = workflow_result.get("analysis")
-        metadata_items = getattr(analysis, "metadata_items", []) or []
-        first_item = metadata_items[0] if metadata_items else {}
-        context.update(
-            {
-                "active_file": getattr(analysis, "file_name", "unknown"),
-                "logged_tools": ", ".join(getattr(analysis, "used_tools", []) or []) or "none",
-                "modality": getattr(first_item, "get", lambda *_: "unknown")("modality"),
-                "series_count": len(getattr(analysis, "series", []) or []),
-            }
-        )
-    return context
-
-
-def _render_workflow_answer(manifest: dict[str, object], workflow_result: dict[str, object]) -> str:
-    template = str(manifest.get("answer_template") or "").strip()
-    if not template:
-        return str(workflow_result.get("answer") or "").strip()
-    workflow_name = str(manifest.get("name") or "workflow")
-    source_type = str(manifest.get("source_type") or "").strip().lower()
-    context = _workflow_template_context(source_type, workflow_name, workflow_result)
-    try:
-        return template.format(**context)
-    except Exception:
-        return str(workflow_result.get("answer") or "").strip()
-
-
-def _run_registered_workflow_for_source(source_type: str, workflow_name: str, analysis: object) -> dict[str, object]:
-    source = source_type.strip().lower()
-    if source == "vcf":
-        return run_registered_analysis_workflow(workflow_name, analysis)
-    if source == "raw_qc":
-        return run_registered_raw_qc_workflow(workflow_name, analysis)
-    if source == "summary_stats":
-        return run_registered_summary_stats_workflow(workflow_name, analysis)
-    if source == "dicom":
-        return run_registered_dicom_workflow(workflow_name, analysis)
-    if source == "text":
-        return run_registered_text_workflow(workflow_name, analysis)
-    if source == "spreadsheet":
-        return run_registered_spreadsheet_workflow(workflow_name, analysis)
-    raise NotImplementedError(f"Unsupported workflow source type: {source_type}")
-
-
-def _assemble_workflow_chat_response(
-    manifest: dict[str, object], workflow_result: dict[str, object]
-) -> AnalysisChatResponse | DicomChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse:
-    response_kind = str(manifest.get("response_kind") or "").strip().lower()
-    requested_view = str(workflow_result.get("requested_view") or manifest.get("requested_view") or "").strip() or None
-    studio = workflow_result.get("studio")
-    if not isinstance(studio, dict):
-        studio = workflow_studio_metadata(manifest)
-    answer = _render_workflow_answer(manifest, workflow_result)
-    if response_kind == "analysis_chat":
-        return AnalysisChatResponse(
-            answer=answer,
-            citations=[],
-            used_fallback=False,
-            studio=studio,
-            requested_view=requested_view,
-            analysis=workflow_result.get("analysis"),
-        )
-    if response_kind == "raw_qc_chat":
-        return RawQcChatResponse(
-            answer=answer,
-            citations=[],
-            used_fallback=False,
-            studio=studio,
-            requested_view=requested_view,
-            analysis=workflow_result.get("analysis"),
-        )
-    if response_kind == "summary_stats_chat":
-        return SummaryStatsChatResponse(
-            source_type="summary_stats",
-            answer=answer,
-            citations=[],
-            used_fallback=False,
-            studio=studio,
-            requested_view=requested_view,
-            analysis=workflow_result.get("analysis"),
-            prs_prep_result=workflow_result.get("prs_prep_result"),
-        )
-    if response_kind == "dicom_chat":
-        return DicomChatResponse(
-            source_type="dicom",
-            answer=answer,
-            citations=[],
-            used_fallback=False,
-            studio=studio,
-            requested_view=requested_view,
-            analysis=workflow_result.get("analysis"),
-        )
-    if response_kind == "text_chat":
-        return TextChatResponse(
-            source_type="text",
-            answer=answer,
-            citations=[],
-            used_fallback=False,
-            studio=studio,
-            requested_view=requested_view,
-            analysis=workflow_result.get("analysis"),
-        )
-    if response_kind == "spreadsheet_chat":
-        return SpreadsheetChatResponse(
-            source_type="spreadsheet",
-            answer=answer,
-            citations=[],
-            used_fallback=False,
-            studio=studio,
-            requested_view=requested_view,
-            analysis=workflow_result.get("analysis"),
-        )
-    raise NotImplementedError(f"Unsupported workflow response kind: {response_kind or 'unknown'}")
 
 
 def _with_result_field(result_kind: str | None, result: object, **kwargs: Any) -> dict[str, Any]:
@@ -636,88 +413,6 @@ def _text_tool_response(
         )
     )
 
-
-def _render_skill_help(source_type: str | None = None, selected: dict[str, object] | None = None) -> str:
-    manifests = list_workflow_manifests(source_type=source_type)
-    if selected is not None:
-        manifests = [selected]
-    if not manifests:
-        return "No workflow registry entries are available for the current source."
-    tool_lookup = {
-        str(item.get("name") or "").strip(): item
-        for item in load_tool_manifests()
-        if isinstance(item, dict)
-    }
-    lines: list[str] = ["**Workflow registry**", ""]
-    for item in manifests:
-        name = str(item.get("name") or "workflow")
-        description = str(item.get("description") or "").strip()
-        lines.append(f"- `@skill {name}`: {description}")
-        if selected is not None:
-            steps = item.get("steps") or []
-            if isinstance(steps, list) and steps:
-                lines.append("")
-                lines.append("Steps")
-                for step in steps:
-                    if isinstance(step, dict):
-                        step_name = str(step.get("tool") or "").strip()
-                        bind_name = str(step.get("bind") or "").strip()
-                        needs = [
-                            str(value).strip()
-                            for value in step.get("needs", [])
-                            if str(value).strip()
-                        ]
-                        on_fail = str(step.get("on_fail") or "").strip().lower()
-                    else:
-                        step_name = str(step).strip()
-                        bind_name = ""
-                        needs = []
-                        on_fail = ""
-                    manifest = tool_lookup.get(step_name)
-                    if manifest is not None:
-                        step_description = str(manifest.get("description") or "").strip()
-                        detail_parts: list[str] = []
-                        if bind_name:
-                            detail_parts.append(f"binds `{bind_name}`")
-                        if needs:
-                            detail_parts.append(f"needs `{', '.join(needs)}`")
-                        if on_fail == "continue":
-                            detail_parts.append("continues on failure")
-                        detail_text = f" ({'; '.join(detail_parts)})" if detail_parts else ""
-                        lines.append(f"- `{step_name}`: {step_description}{detail_text}")
-                    else:
-                        detail_parts = []
-                        if bind_name:
-                            detail_parts.append(f"binds `{bind_name}`")
-                        if needs:
-                            detail_parts.append(f"needs `{', '.join(needs)}`")
-                        if on_fail == "continue":
-                            detail_parts.append("continues on failure")
-                        detail_text = f" ({'; '.join(detail_parts)})" if detail_parts else ""
-                        lines.append(f"- `{step_name}`{detail_text}")
-    lines.append("")
-    lines.append("Examples")
-    if source_type == "vcf":
-        lines.append("- `@skill representative_vcf_review`")
-    elif source_type == "raw_qc":
-        lines.append("- `@samtools`")
-    elif source_type == "summary_stats":
-        lines.append("- `@skill prs_prep`")
-    else:
-        lines.append("- `@skill help`")
-        lines.append("- `@skill representative_vcf_review`")
-    return "\n".join(lines)
-
-
-def _resolve_skill_help_response(
-    skill_request: dict[str, object] | None, source_type: str
-) -> str | None:
-    if not skill_request or not bool(skill_request.get("is_help")):
-        return None
-    manifest = skill_request.get("manifest")
-    if isinstance(manifest, dict):
-        return _render_skill_help(source_type, selected=manifest)
-    return _render_skill_help(source_type)
 
 
 def _is_korean(text: str) -> bool:
@@ -1859,60 +1554,11 @@ def _handle_at_tool_request_for_source(
     return _basic_source_response(source_type, _unknown_tool_answer(tool_request))
 
 
-def _handle_skill_request_for_source(
-    source_type: str,
-    payload: AnalysisChatRequest | RawQcChatRequest | SpreadsheetChatRequest | SummaryStatsChatRequest | TextChatRequest,
-    skill_request: dict[str, object],
-) -> AnalysisChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse:
-    manifest = skill_request.get("manifest")
-    help_text = _resolve_skill_help_response(skill_request, source_type)
-    if help_text is not None:
-        return _basic_source_response(source_type, help_text)
-    if manifest is None:
-        return _unknown_workflow_response(source_type, skill_request)
-    workflow_name = str(manifest.get("name") or "")
-    workflow_result = _run_registered_workflow_for_source(source_type, workflow_name, payload.analysis)
-    return _assemble_workflow_chat_response(manifest, workflow_result)
 
-def answer_analysis_chat(payload: AnalysisChatRequest) -> AnalysisChatResponse:
-    if _needs_grounded_clarification(payload.question):
-        return AnalysisChatResponse(
-            answer=_grounded_clarification_text(),
-            citations=[],
-            used_fallback=False,
-        )
-
-    skill_request = _parse_skill_request(payload.question)
-    if skill_request:
-        try:
-            response = _handle_skill_request_for_source("vcf", payload, skill_request)
-            assert isinstance(response, AnalysisChatResponse)
-            return response
-        except Exception as exc:
-            name = str(skill_request.get("name") or "workflow")
-            return AnalysisChatResponse(
-                answer=f"`@skill {name}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
-        try:
-            response = _handle_at_tool_request_for_source("vcf", payload, at_tool_request)
-            assert isinstance(response, AnalysisChatResponse)
-            return response
-        except Exception as exc:
-            alias = str(at_tool_request.get("alias") or "tool")
-            return AnalysisChatResponse(
-                answer=f"`@{alias}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    lowered_question = payload.question.lower()
-
-    if "opencravat" in lowered_question or "open cravat" in lowered_question:
+def _vcf_pre_chat_hook(payload: AnalysisChatRequest) -> AnalysisChatResponse | None:
+    """VCF-specific pre-chat checks (e.g. deprecated tool notices)."""
+    lowered = payload.question.lower()
+    if "opencravat" in lowered or "open cravat" in lowered:
         return AnalysisChatResponse(
             answer=(
                 "OpenCRAVAT is not available in this ChatGenome build.\n\n"
@@ -1924,248 +1570,70 @@ def answer_analysis_chat(payload: AnalysisChatRequest) -> AnalysisChatResponse:
             used_fallback=False,
             used_tools=[],
         )
+    return None
+
+
+_SOURCE_PRE_CHAT_HOOKS: dict[str, Any] = {
+    "vcf": _vcf_pre_chat_hook,
+}
+
+
+def _answer_source_chat(source_type: str, payload: Any) -> Any:
+    """Generic chat handler for all source types."""
+    response_cls = _source_response_class(source_type)
+
+    if _needs_grounded_clarification(payload.question):
+        return response_cls(
+            source_type=source_type,
+            answer=_grounded_clarification_text(),
+            citations=[],
+            used_fallback=False,
+        )
+
+    at_tool_request = _parse_at_tool_request(payload.question)
+    if at_tool_request:
+        try:
+            return _handle_at_tool_request_for_source(source_type, payload, at_tool_request)
+        except Exception as exc:
+            alias = str(at_tool_request.get("alias") or "tool")
+            return response_cls(
+                source_type=source_type,
+                answer=f"`@{alias}` execution failed: {exc}",
+                citations=[],
+                used_fallback=True,
+            )
+
+    pre_hook = _SOURCE_PRE_CHAT_HOOKS.get(source_type)
+    if pre_hook is not None:
+        hook_result = pre_hook(payload)
+        if hook_result is not None:
+            return hook_result
 
     try:
-        response = _call_openai_for_source("vcf", payload)
-        assert isinstance(response, AnalysisChatResponse)
-        return response
+        return _call_openai_for_source(source_type, payload)
     except Exception:
-        response = _fallback_chat_answer("vcf", payload.question)
-        assert isinstance(response, AnalysisChatResponse)
-        return response
+        return _fallback_chat_answer(source_type, payload.question)
+
+
+def answer_analysis_chat(payload: AnalysisChatRequest) -> AnalysisChatResponse:
+    return _answer_source_chat("vcf", payload)
 
 
 def answer_raw_qc_chat(payload: RawQcChatRequest) -> RawQcChatResponse:
-    if _needs_grounded_clarification(payload.question):
-        return RawQcChatResponse(
-            answer=_grounded_clarification_text(),
-            citations=[],
-            used_fallback=False,
-        )
-
-    skill_request = _parse_skill_request(payload.question)
-    if skill_request:
-        try:
-            response = _handle_skill_request_for_source("raw_qc", payload, skill_request)
-            assert isinstance(response, RawQcChatResponse)
-            return response
-        except Exception as exc:
-            name = str(skill_request.get("name") or "workflow")
-            return RawQcChatResponse(
-                answer=f"`@skill {name}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
-        try:
-            response = _handle_at_tool_request_for_source("raw_qc", payload, at_tool_request)
-            assert isinstance(response, RawQcChatResponse)
-            return response
-        except Exception as exc:
-            alias = str(at_tool_request.get("alias") or "tool")
-            return RawQcChatResponse(
-                answer=f"`@{alias}` execution failed: {exc}",
-                citations=[],
-                used_fallback=False,
-            )
-
-    try:
-        response = _call_openai_for_source("raw_qc", payload)
-        assert isinstance(response, RawQcChatResponse)
-        return response
-    except Exception:
-        response = _fallback_chat_answer("raw_qc", payload.question)
-        assert isinstance(response, RawQcChatResponse)
-        return response
+    return _answer_source_chat("raw_qc", payload)
 
 
 def answer_summary_stats_chat(payload: SummaryStatsChatRequest) -> SummaryStatsChatResponse:
-    if _needs_grounded_clarification(payload.question):
-        return SummaryStatsChatResponse(
-            answer=_grounded_clarification_text(),
-            citations=[],
-            used_fallback=False,
-        )
-
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
-        try:
-            response = _handle_at_tool_request_for_source("summary_stats", payload, at_tool_request)
-            assert isinstance(response, SummaryStatsChatResponse)
-            return response
-        except Exception as exc:
-            alias = str(at_tool_request.get("alias") or "tool")
-            return SummaryStatsChatResponse(
-                answer=f"`@{alias}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    skill_request = _parse_skill_request(payload.question)
-    if skill_request:
-        try:
-            response = _handle_skill_request_for_source("summary_stats", payload, skill_request)
-            assert isinstance(response, SummaryStatsChatResponse)
-            return response
-        except Exception as exc:
-            name = str(skill_request.get("name") or "workflow")
-            return SummaryStatsChatResponse(
-                answer=f"`@skill {name}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    try:
-        response = _call_openai_for_source("summary_stats", payload)
-        assert isinstance(response, SummaryStatsChatResponse)
-        return response
-    except Exception:
-        response = _fallback_chat_answer("summary_stats", payload.question)
-        assert isinstance(response, SummaryStatsChatResponse)
-        return response
+    return _answer_source_chat("summary_stats", payload)
 
 
 def answer_text_chat(payload: TextChatRequest) -> TextChatResponse:
-    if _needs_grounded_clarification(payload.question):
-        return TextChatResponse(
-            answer=_grounded_clarification_text(),
-            citations=[],
-            used_fallback=False,
-        )
-
-    skill_request = _parse_skill_request(payload.question)
-    if skill_request:
-        try:
-            response = _handle_skill_request_for_source("text", payload, skill_request)
-            assert isinstance(response, TextChatResponse)
-            return response
-        except Exception as exc:
-            name = str(skill_request.get("name") or "workflow")
-            return TextChatResponse(
-                answer=f"`@skill {name}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
-        try:
-            response = _handle_at_tool_request_for_source("text", payload, at_tool_request)
-            assert isinstance(response, TextChatResponse)
-            return response
-        except Exception as exc:
-            alias = str(at_tool_request.get("alias") or "tool")
-            return TextChatResponse(
-                answer=f"`@{alias}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    try:
-        response = _call_openai_for_source("text", payload)
-        assert isinstance(response, TextChatResponse)
-        return response
-    except Exception:
-        response = _fallback_chat_answer("text", payload.question)
-        assert isinstance(response, TextChatResponse)
-        return response
+    return _answer_source_chat("text", payload)
 
 
 def answer_dicom_chat(payload: DicomChatRequest) -> DicomChatResponse:
-    if _needs_grounded_clarification(payload.question):
-        return DicomChatResponse(
-            source_type="dicom",
-            answer=_grounded_clarification_text(),
-            citations=[],
-            used_fallback=False,
-        )
-
-    skill_request = _parse_skill_request(payload.question)
-    if skill_request:
-        try:
-            response = _handle_skill_request_for_source("dicom", payload, skill_request)
-            assert isinstance(response, DicomChatResponse)
-            return response
-        except Exception as exc:
-            name = str(skill_request.get("name") or "workflow")
-            return DicomChatResponse(
-                source_type="dicom",
-                answer=f"`@skill {name}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
-        try:
-            response = _handle_at_tool_request_for_source("dicom", payload, at_tool_request)
-            assert isinstance(response, DicomChatResponse)
-            return response
-        except Exception as exc:
-            alias = str(at_tool_request.get("alias") or "tool")
-            return DicomChatResponse(
-                source_type="dicom",
-                answer=f"`@{alias}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    try:
-        response = _call_openai_for_source("dicom", payload)
-        assert isinstance(response, DicomChatResponse)
-        return response
-    except Exception:
-        response = _fallback_chat_answer("dicom", payload.question)
-        assert isinstance(response, DicomChatResponse)
-        return response
+    return _answer_source_chat("dicom", payload)
 
 
 def answer_spreadsheet_chat(payload: SpreadsheetChatRequest) -> SpreadsheetChatResponse:
-    if _needs_grounded_clarification(payload.question):
-        return SpreadsheetChatResponse(
-            source_type="spreadsheet",
-            answer=_grounded_clarification_text(),
-            citations=[],
-            used_fallback=False,
-        )
-
-    skill_request = _parse_skill_request(payload.question)
-    if skill_request:
-        try:
-            response = _handle_skill_request_for_source("spreadsheet", payload, skill_request)
-            assert isinstance(response, SpreadsheetChatResponse)
-            return response
-        except Exception as exc:
-            name = str(skill_request.get("name") or "workflow")
-            return SpreadsheetChatResponse(
-                source_type="spreadsheet",
-                answer=f"`@skill {name}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
-        try:
-            response = _handle_at_tool_request_for_source("spreadsheet", payload, at_tool_request)
-            assert isinstance(response, SpreadsheetChatResponse)
-            return response
-        except Exception as exc:
-            alias = str(at_tool_request.get("alias") or "tool")
-            return SpreadsheetChatResponse(
-                source_type="spreadsheet",
-                answer=f"`@{alias}` execution failed: {exc}",
-                citations=[],
-                used_fallback=True,
-            )
-
-    try:
-        response = _call_openai_for_source("spreadsheet", payload)
-        assert isinstance(response, SpreadsheetChatResponse)
-        return response
-    except Exception:
-        response = _fallback_chat_answer("spreadsheet", payload.question)
-        assert isinstance(response, SpreadsheetChatResponse)
-        return response
+    return _answer_source_chat("spreadsheet", payload)

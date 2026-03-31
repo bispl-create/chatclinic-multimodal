@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -46,9 +45,11 @@ QQMAN_REPO_DIR = Path(
 )
 
 
+from app.utils.parsing import safe_prefix as _safe_prefix_base
+
+
 def _safe_prefix(prefix: str | None, source_path: str) -> str:
-    raw = prefix or f"{Path(source_path).stem}.rplots"
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", raw)
+    return _safe_prefix_base(prefix, source_path, tool="rplots")
 
 
 def _artifact_title_from_name(name: str) -> tuple[str, str]:

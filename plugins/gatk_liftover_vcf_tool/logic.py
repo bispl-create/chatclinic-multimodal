@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import gzip
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -37,9 +36,11 @@ LOCAL_GATK_JAR = Path(
 )
 
 
+from app.utils.parsing import safe_prefix as _safe_prefix_base
+
+
 def _safe_prefix(prefix: str | None, source_path: str) -> str:
-    raw = prefix or f"{Path(source_path).stem}.liftover"
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", raw)
+    return _safe_prefix_base(prefix, source_path, tool="liftover")
 
 
 def _count_vcf_records(path: Path) -> int:

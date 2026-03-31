@@ -197,12 +197,19 @@ class ToolRunResponse(BaseModel):
     studio: Optional[dict[str, Any]] = None
 
 
-class AnalysisResponse(BaseModel):
+class BaseSourceResponse(BaseModel):
+    """Common fields shared by all source-type analysis responses."""
     analysis_id: str
     source_type: Optional[str] = None
     result_kind: Optional[str] = None
     requested_view: Optional[str] = None
     studio: Optional[dict[str, Any]] = None
+    draft_answer: str = ""
+    used_tools: list[str] = []
+    tool_registry: list[ToolInfo] = []
+
+
+class AnalysisResponse(BaseSourceResponse):
     facts: AnalysisFacts
     annotations: list[VariantAnnotation]
     roh_segments: list[RohSegment]
@@ -220,9 +227,6 @@ class AnalysisResponse(BaseModel):
     references: list[ReferenceItem]
     recommendations: list[RecommendationItem]
     ui_cards: list[dict[str, Any]]
-    draft_answer: str
-    used_tools: list[str] = []
-    tool_registry: list[ToolInfo] = []
 
 
 class AnalysisJobResponse(BaseModel):
@@ -253,14 +257,15 @@ class StudioContextPayload(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
-class AnalysisChatRequest(BaseModel):
+class BaseChatRequest(BaseModel):
+    """Common fields for all source-type chat requests."""
     question: str
-    analysis: AnalysisResponse
     history: list[ChatTurn] = []
     studio_context: StudioContextPayload = Field(default_factory=StudioContextPayload)
 
 
-class AnalysisChatResponse(BaseModel):
+class BaseChatResponse(BaseModel):
+    """Common fields for all source-type chat responses."""
     source_type: Optional[str] = None
     answer: str
     citations: list[str]
@@ -269,6 +274,13 @@ class AnalysisChatResponse(BaseModel):
     result_kind: Optional[str] = None
     requested_view: Optional[str] = None
     studio: Optional[dict[str, Any]] = None
+
+
+class AnalysisChatRequest(BaseChatRequest):
+    analysis: AnalysisResponse
+
+
+class AnalysisChatResponse(BaseChatResponse):
     analysis: Optional[AnalysisResponse] = None
     plink_result: Optional[PlinkResponse] = None
     liftover_result: Optional[GatkLiftoverVcfResponse] = None
@@ -292,38 +304,20 @@ class RawQcModule(BaseModel):
     detail: str = ""
 
 
-class RawQcResponse(BaseModel):
-    analysis_id: str
-    source_type: Optional[str] = None
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class RawQcResponse(BaseSourceResponse):
     source_raw_path: Optional[str] = None
     facts: RawQcFacts
     modules: list[RawQcModule]
     samtools_result: Optional[SamtoolsResponse] = None
-    draft_answer: str
     report_html_path: Optional[str] = None
     report_zip_path: Optional[str] = None
-    used_tools: list[str] = []
-    tool_registry: list[ToolInfo] = []
 
 
-class RawQcChatRequest(BaseModel):
-    question: str
+class RawQcChatRequest(BaseChatRequest):
     analysis: RawQcResponse
-    history: list[ChatTurn] = []
-    studio_context: StudioContextPayload = Field(default_factory=StudioContextPayload)
 
 
-class RawQcChatResponse(BaseModel):
-    source_type: Optional[str] = None
-    answer: str
-    citations: list[str]
-    used_fallback: bool
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class RawQcChatResponse(BaseChatResponse):
     analysis: Optional[RawQcResponse] = None
     samtools_result: Optional[SamtoolsResponse] = None
 
@@ -341,12 +335,7 @@ class SummaryStatsFieldMapping(BaseModel):
     eaf: Optional[str] = None
 
 
-class SummaryStatsResponse(BaseModel):
-    analysis_id: str
-    source_type: Optional[str] = None
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class SummaryStatsResponse(BaseSourceResponse):
     source_stats_path: Optional[str] = None
     file_name: str
     genome_build: str = "unknown"
@@ -359,9 +348,6 @@ class SummaryStatsResponse(BaseModel):
     warnings: list[str] = []
     qqman_result: Optional[RPlotResponse] = None
     prs_prep_result: Optional[PrsPrepResponse] = None
-    draft_answer: str
-    used_tools: list[str] = []
-    tool_registry: list[ToolInfo] = []
 
 
 class SummaryStatsRowsRequest(BaseModel):
@@ -378,32 +364,17 @@ class SummaryStatsRowsResponse(BaseModel):
     has_more: bool
 
 
-class SummaryStatsChatRequest(BaseModel):
-    question: str
+class SummaryStatsChatRequest(BaseChatRequest):
     analysis: SummaryStatsResponse
-    history: list[ChatTurn] = []
-    studio_context: StudioContextPayload = Field(default_factory=StudioContextPayload)
 
 
-class SummaryStatsChatResponse(BaseModel):
-    source_type: Optional[str] = None
-    answer: str
-    citations: list[str]
-    used_fallback: bool
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class SummaryStatsChatResponse(BaseChatResponse):
     analysis: Optional[SummaryStatsResponse] = None
     qqman_result: Optional[RPlotResponse] = None
     prs_prep_result: Optional[PrsPrepResponse] = None
 
 
-class TextSourceResponse(BaseModel):
-    analysis_id: str
-    source_type: Optional[str] = None
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class TextSourceResponse(BaseSourceResponse):
     source_text_path: Optional[str] = None
     file_name: str
     media_type: str = "text/plain"
@@ -412,35 +383,17 @@ class TextSourceResponse(BaseModel):
     line_count: int = 0
     preview_lines: list[str] = []
     warnings: list[str] = []
-    draft_answer: str
-    used_tools: list[str] = []
-    tool_registry: list[ToolInfo] = []
 
 
-class TextChatRequest(BaseModel):
-    question: str
+class TextChatRequest(BaseChatRequest):
     analysis: TextSourceResponse
-    history: list[ChatTurn] = []
-    studio_context: StudioContextPayload = Field(default_factory=StudioContextPayload)
 
 
-class TextChatResponse(BaseModel):
-    source_type: Optional[str] = None
-    answer: str
-    citations: list[str]
-    used_fallback: bool
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class TextChatResponse(BaseChatResponse):
     analysis: Optional[TextSourceResponse] = None
 
 
-class SpreadsheetSourceResponse(BaseModel):
-    analysis_id: str
-    source_type: Optional[str] = None
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class SpreadsheetSourceResponse(BaseSourceResponse):
     source_spreadsheet_path: Optional[str] = None
     file_name: str
     workbook_format: str = "xlsx"
@@ -451,35 +404,17 @@ class SpreadsheetSourceResponse(BaseModel):
     studio_cards: list[dict[str, Any]] = []
     artifacts: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
-    draft_answer: str
-    used_tools: list[str] = []
-    tool_registry: list[ToolInfo] = []
 
 
-class SpreadsheetChatRequest(BaseModel):
-    question: str
+class SpreadsheetChatRequest(BaseChatRequest):
     analysis: SpreadsheetSourceResponse
-    history: list[ChatTurn] = []
-    studio_context: StudioContextPayload = Field(default_factory=StudioContextPayload)
 
 
-class SpreadsheetChatResponse(BaseModel):
-    source_type: Optional[str] = None
-    answer: str
-    citations: list[str]
-    used_fallback: bool
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class SpreadsheetChatResponse(BaseChatResponse):
     analysis: Optional[SpreadsheetSourceResponse] = None
 
 
-class DicomSourceResponse(BaseModel):
-    analysis_id: str
-    source_type: Optional[str] = None
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class DicomSourceResponse(BaseSourceResponse):
     source_dicom_path: Optional[str] = None
     file_name: str
     file_kind: str = "DICOM"
@@ -488,26 +423,13 @@ class DicomSourceResponse(BaseModel):
     studio_cards: list[dict[str, Any]] = []
     artifacts: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
-    draft_answer: str
-    used_tools: list[str] = []
-    tool_registry: list[ToolInfo] = []
 
 
-class DicomChatRequest(BaseModel):
-    question: str
+class DicomChatRequest(BaseChatRequest):
     analysis: DicomSourceResponse
-    history: list[ChatTurn] = []
-    studio_context: StudioContextPayload = Field(default_factory=StudioContextPayload)
 
 
-class DicomChatResponse(BaseModel):
-    source_type: Optional[str] = None
-    answer: str
-    citations: list[str]
-    used_fallback: bool
-    result_kind: Optional[str] = None
-    requested_view: Optional[str] = None
-    studio: Optional[dict[str, Any]] = None
+class DicomChatResponse(BaseChatResponse):
     analysis: Optional[DicomSourceResponse] = None
 
 

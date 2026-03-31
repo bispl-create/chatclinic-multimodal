@@ -485,23 +485,6 @@ type RawQcChatResponse = {
   samtools_result?: RawQcResponse["samtools_result"];
 };
 
-type WorkflowStep =
-  | string
-  | {
-      tool?: string;
-      bind?: string;
-      needs?: string[];
-      on_fail?: string;
-    };
-
-type WorkflowManifest = {
-  name: string;
-  description: string;
-  source_type: "vcf" | "raw_qc" | "summary_stats" | string;
-  steps?: WorkflowStep[];
-  default_view?: string | null;
-};
-
 type SourceReadyResponse = {
   source_type: "vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom";
   file_name: string;
@@ -539,51 +522,6 @@ type PrsPrepResponse = {
   score_file_ready: boolean;
   draft_answer: string;
 };
-
-const DEFAULT_WORKFLOW_REGISTRY: WorkflowManifest[] = [
-  {
-    name: "representative_vcf_review",
-    description: "Run the default representative VCF interpretation workflow on the active VCF source.",
-    source_type: "vcf",
-    default_view: "candidates",
-  },
-  {
-    name: "raw_qc_review",
-    description: "Run the default raw sequencing QC workflow on the active FASTQ/BAM/SAM source.",
-    source_type: "raw_qc",
-    default_view: "rawqc",
-  },
-  {
-    name: "summary_stats_review",
-    description: "Run the default summary statistics intake and review workflow on the active summary-stats source.",
-    source_type: "summary_stats",
-    default_view: "sumstats",
-  },
-  {
-    name: "prs_prep",
-    description: "Run build check, harmonization prep, and score-file preparation on the active summary-statistics source.",
-    source_type: "summary_stats",
-    default_view: "prs_prep",
-  },
-  {
-    name: "text_review",
-    description: "Run the default text-note review workflow on the active text source.",
-    source_type: "text",
-    default_view: "text",
-  },
-  {
-    name: "spreadsheet_review",
-    description: "Run the default cohort-style review workflow on the active spreadsheet workbook.",
-    source_type: "spreadsheet",
-    default_view: "cohort_browser",
-  },
-  {
-    name: "dicom_review",
-    description: "Run the default DICOM metadata and preview review workflow on the active DICOM source.",
-    source_type: "dicom",
-    default_view: "dicom_review",
-  },
-];
 
 const DEFAULT_LIFTOVER_CHAIN =
   "/Users/jongcye/Documents/Codex/workspace/bioinformatics_vcf_evidence_mvp/references/liftover/chains/hg19ToHg38.over.chain.gz";
@@ -639,31 +577,6 @@ type RohStudioSegment = {
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function describeWorkflowStep(step: WorkflowStep, availableTools: Record<string, string>) {
-  if (typeof step === "string") {
-    return `- \`${step}\`${availableTools[step] ? `: ${availableTools[step]}` : ""}`;
-  }
-
-  const toolName = String(step?.tool ?? "").trim();
-  const bindName = String(step?.bind ?? "").trim();
-  const needs = Array.isArray(step?.needs)
-    ? step.needs.map((item) => String(item).trim()).filter(Boolean)
-    : [];
-  const onFail = String(step?.on_fail ?? "").trim().toLowerCase();
-  const detailParts: string[] = [];
-  if (bindName) {
-    detailParts.push(`binds \`${bindName}\``);
-  }
-  if (needs.length) {
-    detailParts.push(`needs \`${needs.join(", ")}\``);
-  }
-  if (onFail === "continue") {
-    detailParts.push("continues on failure");
-  }
-  const details = detailParts.length ? ` (${detailParts.join("; ")})` : "";
-  return `- \`${toolName}\`${availableTools[toolName] ? `: ${availableTools[toolName]}` : ""}${details}`;
 }
 
 function isRawQcFileName(fileName: string) {
@@ -1276,7 +1189,7 @@ export default function Page() {
     {
       role: "assistant",
       content:
-        "Select a session mode first. `@mode prs` starts the PRS workflow and expects two inputs: summary statistics and a target genotype. `@mode vcf_analysis` starts a single-input VCF variant interpretation session. `@mode raw_sequence` starts a FASTQ/BAM/SAM raw sequencing QC session. `@mode text_review` starts a text-note review session. `@mode spreadsheet_review` starts a multi-sheet workbook cohort review session. `@mode imaging_review` starts a DICOM imaging review session. To see the available modes again, enter `@mode help`.",
+        "Upload a source file to get started. Supported formats: VCF (variant interpretation), FASTQ/BAM/SAM (raw sequencing QC), summary statistics, Excel workbooks, text/markdown notes, and DICOM images. The appropriate tools will run automatically after upload.",
     },
   ]);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
@@ -1291,7 +1204,17 @@ export default function Page() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | null>(null);
   const [activeSource, setActiveSource] = useState<SourceReadyResponse | null>(null);
-  const [sessionMode, setSessionMode] = useState<SessionMode | null>(null);
+  const sessionMode: SessionMode | null = useMemo(() => {
+    const src = attachedSourceType;
+    if (!src) return null;
+    if (src === "vcf") return "vcf_analysis";
+    if (src === "raw_qc") return "raw_sequence";
+    if (src === "summary_stats") return "prs";
+    if (src === "text") return "text_review";
+    if (src === "spreadsheet") return "spreadsheet_review";
+    if (src === "dicom") return "imaging_review";
+    return null;
+  }, [attachedSourceType]);
   const [pendingUploadRole, setPendingUploadRole] = useState<"default" | "prs_summary" | "prs_target">("default");
   const [prsSummaryFile, setPrsSummaryFile] = useState<File | null>(null);
   const [prsTargetFile, setPrsTargetFile] = useState<File | null>(null);
@@ -1328,8 +1251,6 @@ export default function Page() {
     outputPrefix: "",
   });
   const [toolRegistryOpen, setToolRegistryOpen] = useState(false);
-  const [skillRegistryOpen, setSkillRegistryOpen] = useState(false);
-  const [workflowRegistry, setWorkflowRegistry] = useState<WorkflowManifest[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const studioCanvasRef = useRef<HTMLElement | null>(null);
   const chatStreamRef = useRef<HTMLDivElement | null>(null);
@@ -1360,34 +1281,6 @@ export default function Page() {
     }
     return base;
   })();
-  const availableWorkflows = useMemo(() => {
-    const registry = workflowRegistry.length ? workflowRegistry : DEFAULT_WORKFLOW_REGISTRY;
-    const sessionModeSourceType =
-      sessionMode === "prs" ? "summary_stats"
-      : sessionMode === "vcf_analysis" ? "vcf"
-      : sessionMode === "raw_sequence" ? "raw_qc"
-      : sessionMode === "text_review" ? "text"
-      : sessionMode === "spreadsheet_review" ? "spreadsheet"
-      : sessionMode === "imaging_review" ? "dicom"
-      : null;
-    const sourceType =
-      sessionMode === "prs"
-        ? "summary_stats"
-        : analysis
-          ? "vcf"
-          : rawQcAnalysis
-            ? "raw_qc"
-              : summaryStatsAnalysis
-                ? "summary_stats"
-              : dicomAnalysis
-                ? "dicom"
-              : spreadsheetAnalysis
-                ? "spreadsheet"
-              : textAnalysis
-                ? "text"
-              : attachedSourceType ?? sessionModeSourceType;
-    return sourceType ? registry.filter((item) => item.source_type === sourceType) : registry;
-  }, [workflowRegistry, analysis, rawQcAnalysis, summaryStatsAnalysis, dicomAnalysis, spreadsheetAnalysis, textAnalysis, attachedSourceType, sessionMode]);
 
   const hasAttachedSource = Boolean(attachedFile || prsSummaryFile || prsTargetFile);
 
@@ -1515,23 +1408,7 @@ export default function Page() {
       }
     }
 
-    async function loadWorkflowRegistry() {
-      try {
-        const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/workflows`);
-        if (!response.ok) {
-          return;
-        }
-        const payload = (await response.json()) as WorkflowManifest[];
-        if (!cancelled) {
-          setWorkflowRegistry(payload);
-        }
-      } catch {
-        // best-effort refresh only
-      }
-    }
-
     void loadToolRegistry();
-    void loadWorkflowRegistry();
     const retryTimer = window.setInterval(() => {
       if (!cancelled && (toolRegistry?.length ?? 0) === 0) {
         void loadToolRegistry();
@@ -1576,126 +1453,6 @@ export default function Page() {
   function handleAttachClick(role: "default" | "prs_summary" | "prs_target" = "default") {
     setPendingUploadRole(role);
     fileInputRef.current?.click();
-  }
-
-  function workflowHelpText(sourceType: "vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | null) {
-    const registry = workflowRegistry.length ? workflowRegistry : DEFAULT_WORKFLOW_REGISTRY;
-    const filtered = registry.filter((item) => !sourceType || item.source_type === sourceType);
-    if (filtered.length === 0) {
-      return "No workflow registry entries are available for the current source.";
-    }
-    return [
-      "**Workflow registry**",
-      "",
-      ...filtered.map((item) => `- \`@skill ${item.name}\`: ${item.description}`),
-    ].join("\n");
-  }
-
-  function workflowDetailHelpText(workflowName: string) {
-    const registry = workflowRegistry.length ? workflowRegistry : DEFAULT_WORKFLOW_REGISTRY;
-    const workflow = registry.find((item) => item.name === workflowName);
-    if (!workflow) {
-      return `\`@skill ${workflowName}\` is not a registered workflow.`;
-    }
-    const availableTools = (toolRegistry ?? []).reduce<Record<string, string>>((acc, item) => {
-      acc[item.name] = item.description;
-      return acc;
-    }, {});
-    const lines = [
-      `**${workflow.name}**`,
-      "",
-      workflow.description,
-    ];
-    if (workflow.steps?.length) {
-      lines.push("", "Steps");
-      workflow.steps.forEach((step) => {
-        lines.push(describeWorkflowStep(step, availableTools));
-      });
-    }
-    lines.push("", "Examples", `- \`@skill ${workflow.name}\``, `- \`@skill ${workflow.name} help\``);
-    return lines.join("\n");
-  }
-
-  function modeHelpText() {
-    return [
-      "**Available modes**",
-      "",
-      "- `@mode prs`: polygenic risk score workflow with two inputs (`summary statistics` and `target genotype VCF`).",
-      "- `@mode vcf_analysis`: variant interpretation workflow with one VCF source.",
-      "- `@mode raw_sequence`: raw sequencing QC workflow with one FASTQ/BAM/SAM source.",
-      "- `@mode text_review`: plain-text or markdown review workflow with one text source.",
-      "- `@mode spreadsheet_review`: multi-sheet Excel workbook review workflow with one spreadsheet source.",
-      "- `@mode imaging_review`: DICOM metadata and preview workflow with one DICOM source.",
-    ].join("\n");
-  }
-
-  function modeSelectionText(mode: SessionMode) {
-    if (mode === "prs") {
-      return [
-        "**PRS mode**",
-        "",
-        "This session expects two sources:",
-        "- `Summary statistics` for PRS preparation",
-        "- `Target genotype VCF` for PLINK scoring",
-        "",
-        "Next steps:",
-        "- Upload the summary-statistics file into the `Summary stats` slot",
-        "- Upload the target genotype VCF into the `Target genotype` slot",
-        "- Then run `@skill prs_prep` and `@plink score`",
-      ].join("\n");
-    }
-    if (mode === "vcf_analysis") {
-      return [
-        "**VCF analysis mode**",
-        "",
-        "This session expects one VCF source for variant interpretation.",
-        "",
-        "Next steps:",
-        "- Upload one VCF file",
-        "- Run `@skill representative_vcf_review`",
-      ].join("\n");
-    }
-    if (mode === "text_review") {
-      return [
-        "**Text review mode**",
-        "",
-        "This session expects one Markdown or plain-text note source.",
-        "",
-        "Next steps:",
-        "- Upload one `.md`, `.markdown`, `.text`, `.note`, or `.log` file",
-        "- The text review tool runs automatically after upload",
-      ].join("\n");
-    }
-    if (mode === "spreadsheet_review") {
-      return [
-        "**Spreadsheet review mode**",
-        "",
-        "This session expects one workbook source:",
-        "- Upload one `.xlsx` or `.xlsm` workbook",
-        "- The cohort sheet browser tool runs automatically after upload",
-        "- Open the Studio cohort browser card to inspect sheets, schema, subjects, and missingness",
-      ].join("\n");
-    }
-    if (mode === "imaging_review") {
-      return [
-        "**Imaging review mode**",
-        "",
-        "This session expects one DICOM source:",
-        "- Upload one `.dcm` or `.dicom` file",
-        "- The DICOM review tool runs automatically after upload",
-        "- Open the Studio DICOM Review card to inspect metadata and preview state",
-      ].join("\n");
-    }
-    return [
-      "**Raw sequencing mode**",
-      "",
-      "This session expects one FASTQ/BAM/SAM source for raw sequencing QC.",
-      "",
-      "Next steps:",
-      "- Upload one raw sequencing file",
-      "- The raw QC review tool runs automatically after upload",
-      "- Open the Studio FastQC Review card to inspect QC modules and artifacts",
-    ].join("\n");
   }
 
   async function uploadActiveSource(file: File): Promise<SourceReadyResponse> {
@@ -1962,10 +1719,10 @@ export default function Page() {
         role: "assistant",
         content:
           slotRole === "prs_summary"
-            ? `Summary statistics source \`${file.name}\` is loaded into the PRS session. Upload a target genotype VCF into the second slot, then run \`@skill prs_prep\`.`
+            ? `Summary statistics source \`${file.name}\` is loaded into the PRS session. Upload a target genotype VCF into the second slot, then run \`@prs_prep\`.`
             : hadPreparedPrsScoreFile
               ? `Target genotype VCF source \`${file.name}\` is loaded into the PRS session. You can run \`@plink score\` now.`
-              : `Target genotype VCF source \`${file.name}\` is loaded into the PRS session. Prepare the summary-statistics source with \`@skill prs_prep\`, then run \`@plink score\`.`,
+              : `Target genotype VCF source \`${file.name}\` is loaded into the PRS session. Prepare the summary-statistics source with \`@prs_prep\`, then run \`@plink score\`.`,
       });
       event.target.value = "";
       setPendingUploadRole("default");
@@ -2205,7 +1962,7 @@ export default function Page() {
           content:
             "PLINK score needs a prepared score file.\n\n" +
             "- Upload a summary-statistics source.\n" +
-            "- Run `@skill prs_prep`.\n" +
+            "- Run `@prs_prep`.\n" +
             "- Then upload the target genotype VCF and run `@plink score` again.",
         });
         return;
@@ -2895,60 +2652,11 @@ export default function Page() {
       return;
     }
 
-    const modeMatch = text.match(/^@mode(?:\s+(.*))?$/i);
-    if (modeMatch) {
-      addMessage({ role: "user", content: text });
-      setComposerText("");
-      const remainder = (modeMatch[1] ?? "").trim().toLowerCase();
-      if (!remainder || remainder === "help") {
-        addMessage({ role: "assistant", content: modeHelpText() });
-        return;
-      }
-      if (remainder === "prs") {
-        setSessionMode("prs");
-        setStatus("PRS mode selected");
-        addMessage({ role: "assistant", content: modeSelectionText("prs") });
-        return;
-      }
-      if (remainder === "vcf_analysis") {
-        setSessionMode("vcf_analysis");
-        setStatus("VCF analysis mode selected");
-        addMessage({ role: "assistant", content: modeSelectionText("vcf_analysis") });
-        return;
-      }
-      if (remainder === "raw_sequence") {
-        setSessionMode("raw_sequence");
-        setStatus("Raw sequencing mode selected");
-        addMessage({ role: "assistant", content: modeSelectionText("raw_sequence") });
-        return;
-      }
-      if (remainder === "text_review") {
-        setSessionMode("text_review");
-        setStatus("Text review mode selected");
-        addMessage({ role: "assistant", content: modeSelectionText("text_review") });
-        return;
-      }
-      if (remainder === "spreadsheet_review") {
-        setSessionMode("spreadsheet_review");
-        setStatus("Spreadsheet review mode selected");
-        addMessage({ role: "assistant", content: modeSelectionText("spreadsheet_review") });
-        return;
-      }
-      if (remainder === "imaging_review") {
-        setSessionMode("imaging_review");
-        setStatus("Imaging review mode selected");
-        addMessage({ role: "assistant", content: modeSelectionText("imaging_review") });
-        return;
-      }
-      addMessage({ role: "assistant", content: `\`@mode ${remainder}\` is not available. Use \`@mode help\`.` });
-      return;
-    }
-
     if (!hasAttachedSource) {
       addMessage({ role: "user", content: text });
       addMessage({
         role: "assistant",
-        content: sessionMode ? "먼저 현재 mode에 필요한 source 파일을 업로드해 주세요." : "먼저 `@mode prs`, `@mode vcf_analysis`, `@mode raw_sequence`, `@mode text_review`, `@mode spreadsheet_review`, 또는 `@mode imaging_review`를 선택한 뒤 source 파일을 업로드해 주세요.",
+        content: "먼저 분석할 소스 파일을 업로드해 주세요. VCF, FASTQ, BAM, DICOM, Excel, TSV, TXT 등 지원됩니다.",
       });
       setComposerText("");
       return;
@@ -2956,11 +2664,7 @@ export default function Page() {
 
     // @tool intercept — runs regardless of whether an analysis is already loaded
     const earlyToolMatch = text.match(/^@([A-Za-z0-9_-]+)(?:\s+(.*))?$/);
-    if (
-      earlyToolMatch &&
-      earlyToolMatch[1].toLowerCase() !== "skill" &&
-      earlyToolMatch[1].toLowerCase() !== "mode"
-    ) {
+    if (earlyToolMatch) {
       const alias = earlyToolMatch[1].trim();
       const remainder = (earlyToolMatch[2] ?? "").trim();
       const isHelp = /^(help|--help|-h)(\s+.*)?$/i.test(remainder);
@@ -2990,106 +2694,11 @@ export default function Page() {
     }
 
     if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis) {
-      const skillMatch = text.match(/^@skill(?:\s+(.*))?$/i);
-      if (skillMatch) {
-        addMessage({ role: "user", content: text });
-        setComposerText("");
-        const remainder = (skillMatch[1] ?? "").trim();
-        if (!remainder || /^help$/i.test(remainder)) {
-          addMessage({
-            role: "assistant",
-            content: workflowHelpText(attachedSourceType),
-          });
-          return;
-        }
-
-        const workflowName = remainder.split(/\s+/)[0];
-        const selectedVcfFile = sessionMode === "vcf_analysis" ? attachedFile : attachedFile;
-        const selectedRawQcFile = attachedFile;
-        const selectedSummaryStatsFile = sessionMode === "prs" ? prsSummaryFile : attachedFile;
-        if (/\shelp$/i.test(remainder)) {
-          addMessage({
-            role: "assistant",
-            content: workflowDetailHelpText(workflowName),
-          });
-          return;
-        }
-        if (workflowName === "representative_vcf_review" && (sessionMode === "vcf_analysis" || attachedSourceType === "vcf")) {
-          if (!selectedVcfFile) {
-            addMessage({ role: "assistant", content: "Upload a VCF source first." });
-            return;
-          }
-          await handleStartAnalysis("representative", annotationLimit, selectedVcfFile);
-          return;
-        }
-        if (workflowName === "raw_qc_review" && (sessionMode === "raw_sequence" || attachedSourceType === "raw_qc")) {
-          if (!selectedRawQcFile) {
-            addMessage({ role: "assistant", content: "Upload a raw sequencing source first." });
-            return;
-          }
-          await handleStartRawQc(selectedRawQcFile);
-          return;
-        }
-        if (workflowName === "summary_stats_review" && (sessionMode === null ? attachedSourceType === "summary_stats" : sessionMode === "prs")) {
-          if (!selectedSummaryStatsFile) {
-            addMessage({ role: "assistant", content: "Upload a summary-statistics source first." });
-            return;
-          }
-          await handleStartSummaryStats(selectedSummaryStatsFile);
-          return;
-        }
-        if (workflowName === "text_review" && (sessionMode === "text_review" || attachedSourceType === "text")) {
-          if (!attachedFile) {
-            addMessage({ role: "assistant", content: "Upload a text source first." });
-            return;
-          }
-          await handleStartTextReview(attachedFile);
-          return;
-        }
-        if (workflowName === "dicom_review" && (sessionMode === "imaging_review" || attachedSourceType === "dicom")) {
-          if (!attachedFile) {
-            addMessage({ role: "assistant", content: "Upload a DICOM source first." });
-            return;
-          }
-          await handleStartDicomReview(attachedFile);
-          return;
-        }
-        if (workflowName === "spreadsheet_review" && (sessionMode === "spreadsheet_review" || attachedSourceType === "spreadsheet")) {
-          if (!attachedFile) {
-            addMessage({ role: "assistant", content: "Upload a spreadsheet source first." });
-            return;
-          }
-          await handleStartSpreadsheetReview(attachedFile);
-          return;
-        }
-        if (workflowName === "prs_prep" && (sessionMode === "prs" || attachedSourceType === "summary_stats")) {
-          await handleStartPrsPrepFromSource(prsSummarySource ?? activeSource);
-          return;
-        }
-
-        addMessage({
-          role: "assistant",
-          content:
-            `\`@skill ${workflowName}\` is not compatible with the current active source.` +
-            (attachedSourceType ? ` Current source type: \`${attachedSourceType}\`.` : ""),
-        });
-        return;
-      }
-
       addMessage({ role: "user", content: text });
       setComposerText("");
       addMessage({
         role: "assistant",
-        content:
-          sessionMode === "prs"
-            ? "PRS mode is active. Upload the summary-statistics and target-genotype sources as needed, then use `@skill prs_prep` and `@plink score`."
-            : sessionMode === "text_review"
-              ? "Text review mode is active. Upload a text source to review it automatically."
-              : sessionMode === "imaging_review"
-                ? "Imaging review mode is active. Upload a DICOM source to review it automatically."
-              : sessionMode === "spreadsheet_review"
-                ? "Spreadsheet review mode is active. Upload a workbook source to review it automatically."
-            : "A source is loaded, but no workflow is running yet. Use `@skill help` to see available workflows, then run one such as `@skill representative_vcf_review`.",
+        content: "소스 파일이 업로드되었지만 아직 분석이 진행되지 않았습니다. 파일 업로드 후 자동 분석이 완료될 때까지 잠시 기다려 주세요.",
       });
       return;
     }
@@ -3235,7 +2844,7 @@ export default function Page() {
     setError(null);
     try {
       if (scoreMode && !latestPrsPrepResult?.score_file_ready) {
-        throw new Error("Run @skill prs_prep first and provide a prepared score file before PLINK score mode.");
+        throw new Error("Run @prs_prep first and provide a prepared score file before PLINK score mode.");
       }
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/plink/run`, {
         method: "POST",
@@ -4594,7 +4203,7 @@ export default function Page() {
                       </article>
                     ) : (
                       <div className="sourceEmpty">
-                        <p>Select a session mode with `@mode prs`, `@mode vcf_analysis`, `@mode raw_sequence`, `@mode text_review`, `@mode spreadsheet_review`, or `@mode imaging_review`.</p>
+                        <p>Upload a source file to begin. The session type is detected automatically.</p>
                       </div>
                     )}
                   </div>
@@ -4645,30 +4254,6 @@ export default function Page() {
                     ) : null}
                   </div>
 
-                  <div className="toolUsageLog">
-                    <button
-                      type="button"
-                      className="toolRegistrySummary"
-                      onClick={() => setSkillRegistryOpen((current) => !current)}
-                    >
-                      Available Skills
-                      <span className="toolRegistryCount">{availableWorkflows.length}</span>
-                    </button>
-                    {skillRegistryOpen ? (
-                      <div className="toolRegistryMenu">
-                        {availableWorkflows.length ? (
-                          availableWorkflows.map((workflow) => (
-                            <div key={workflow.name} className="toolRegistryItem" title={workflow.description}>
-                              <span className="toolRegistryName">{`@skill ${workflow.name}`}</span>
-                              <span className="toolRegistryTask">{workflow.source_type}</span>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="toolRegistryEmpty">No available skill is registered for the current source.</p>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
                 </div>
               </section>
             </div>
@@ -4697,8 +4282,8 @@ export default function Page() {
                 ))
               ) : (
                 <div className="chatEmptyState">
-                  <h3>Select a mode first</h3>
-                  <p>Use <code>@mode prs</code>, <code>@mode vcf_analysis</code>, <code>@mode raw_sequence</code>, <code>@mode text_review</code>, <code>@mode spreadsheet_review</code>, or <code>@mode imaging_review</code>, then upload the required source files on the left.</p>
+                  <h3>Upload a source file</h3>
+                  <p>Upload a file on the left to start a session. The source type and tools are detected automatically.</p>
                 </div>
               )}
             </div>
@@ -4713,9 +4298,7 @@ export default function Page() {
                 placeholder={
                   hasAttachedSource
                     ? "Start typing a follow-up question..."
-                    : sessionMode
-                    ? "Upload the required source files for the selected mode"
-                      : "Use @mode prs, @mode vcf_analysis, @mode raw_sequence, @mode text_review, @mode spreadsheet_review, or @mode imaging_review first"
+                    : "Upload a source file to begin"
                 }
                 onKeyDown={(event) => {
                   if (isComposing || event.nativeEvent.isComposing) {

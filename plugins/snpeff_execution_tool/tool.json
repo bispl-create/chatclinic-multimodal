@@ -7,8 +7,20 @@
   "approval_required": false,
   "source": "local",
   "routing": {
-    "trigger_keywords": ["snpeff", "snp eff"],
-    "execution_intents": ["run", "execute", "annotate", "use", "실행", "돌려", "주석", "사용"],
+    "trigger_keywords": [
+      "snpeff",
+      "snp eff"
+    ],
+    "execution_intents": [
+      "run",
+      "execute",
+      "annotate",
+      "use",
+      "실행",
+      "돌려",
+      "주석",
+      "사용"
+    ],
     "requires_source_vcf": true,
     "question_argument": "none",
     "result_slot": "snpeff_result",
@@ -17,14 +29,22 @@
   "orchestration": {
     "tool_kind": "execution",
     "default_stage": "post-annotation",
-    "depends_on": ["annotation_tool"],
-    "consumes": ["vcf_path"],
-    "produces": ["snpeff_result"],
+    "depends_on": [
+      "annotation_tool"
+    ],
+    "consumes": [
+      "vcf_path"
+    ],
+    "produces": [
+      "snpeff_result"
+    ],
     "priority": 80,
     "on_demand": true
   },
   "runtime": {
-    "host_compatible": ["cpu"],
+    "host_compatible": [
+      "cpu"
+    ],
     "requires_gpu": false,
     "allow_cpu_fallback": true,
     "estimated_runtime_sec": 8
@@ -37,17 +57,10 @@
     "studio": {
       "renderer": "snpeff"
     },
-    "result_kind": "snpeff_result"
-  },
-  "workflow_binding": {
-    "source_type": "vcf",
-    "input_map": {
-      "vcf_path": "$source_vcf_path",
-      "genome_build_guess": "$facts.genome_build_guess"
-    },
-    "preprocess": "vcf_prepare_snpeff_payload",
-    "transform": "snpeff_response",
-    "used_tools_label": "snpeff_execution_tool"
+    "result_kind": "snpeff_result",
+    "source_types": [
+      "vcf"
+    ]
   },
   "help": {
     "summary": "Run local SnpEff effect annotation on the active VCF source and preview annotated ANN records.",
@@ -79,5 +92,8 @@
       "Uses the active VCF source by default.",
       "Intended as an on-demand annotation preview rather than a general natural-language trigger."
     ]
-  }
+  },
+  "source_types": [
+    "vcf"
+  ]
 }

@@ -6,14 +6,10 @@
   "modality": "text",
   "approval_required": false,
   "source": "plugin",
-  "workflow_binding": {
-    "source_type": "text",
-    "input_map": {
-      "text_path": "$source_text_path",
-      "file_name": "$file_name"
-    },
-    "result_path": "analysis",
-    "transform": "text_source_response",
-    "used_tools_label": "text_review_tool"
-  }
+  "source_types": [
+    "text"
+  ],
+  "initial_for": [
+    "text"
+  ]
 }
