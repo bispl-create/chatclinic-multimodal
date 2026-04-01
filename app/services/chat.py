@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -1835,6 +1836,13 @@ def _call_openai_multimodal(payload: MultimodalChatRequest) -> MultimodalChatRes
             {"role": "user", "content": user_content},
         ],
     }
+    # Truncate user_content to avoid exceeding token limits
+    max_chars = 60_000
+    if len(user_content) > max_chars:
+        user_content = user_content[:max_chars] + "\n\n[... context truncated for length ...]"
+
+    body["input"][-1]["content"] = user_content
+
     request = urllib.request.Request(
         "https://api.openai.com/v1/responses",
         headers={
@@ -1844,8 +1852,12 @@ def _call_openai_multimodal(payload: MultimodalChatRequest) -> MultimodalChatRes
         data=json.dumps(body).encode("utf-8"),
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=OPENAI_TIMEOUT_SECONDS) as response:
-        result = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=OPENAI_TIMEOUT_SECONDS) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as http_err:
+        error_body = http_err.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI {http_err.code}: {error_body}") from http_err
 
     output_text = _extract_openai_output_text(result)
     citations = sorted(set(re.findall(r"\bREF\d+\b", output_text or "")))
