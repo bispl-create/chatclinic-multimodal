@@ -14,6 +14,24 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
+    "fhir": {
+        "upload_label": "FHIR file",
+        "dedicated_upload_detail": "Only FHIR JSON, FHIR XML, and NDJSON uploads are supported.",
+        "upload_endpoint": "fhir",
+        "bootstrap_source_type": "fhir",
+        "chat_response_kind": "fhir",
+        "default_result_kind": "fhir_analysis",
+        "default_requested_view": "fhir_browser",
+        "studio_renderer": "fhir_browser",
+        "studio_card_kind": "fhir_browser",
+        "studio_preview_kind": "patient_overview",
+        "initial_tools": ["fhir_browser_tool"],
+        "capabilities": ["source_upload", "bootstrap_analysis", "grounded_chat"],
+        "suffixes": [".fhir.json", ".fhir.xml", ".ndjson"],
+        "file_kind_map": {
+            ".fhir.json": "FHIR_JSON", ".fhir.xml": "FHIR_XML", ".ndjson": "NDJSON",
+        },
+    },
     "image": {
         "upload_label": "image file",
         "dedicated_upload_detail": "Only PNG, JPG, JPEG, TIFF, TIF, BMP, and WEBP image uploads are supported.",

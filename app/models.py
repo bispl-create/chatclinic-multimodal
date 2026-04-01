@@ -458,6 +458,27 @@ class ImageChatResponse(BaseChatResponse):
     analysis: Optional[ImageSourceResponse] = None
 
 
+class FhirSourceResponse(BaseSourceResponse):
+    source_fhir_path: Optional[str] = None
+    file_name: str = ""
+    file_kind: str = "FHIR"
+    resource_type: str = ""
+    resource_count: int = 0
+    patient_summary: dict[str, Any] = Field(default_factory=dict)
+    metadata_items: list[dict[str, Any]] = []
+    studio_cards: list[dict[str, Any]] = []
+    artifacts: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+
+
+class FhirChatRequest(BaseChatRequest):
+    analysis: FhirSourceResponse
+
+
+class FhirChatResponse(BaseChatResponse):
+    analysis: Optional[FhirSourceResponse] = None
+
+
 class PrsPrepBuildCheck(BaseModel):
     inferred_build: str = "unknown"
     build_confidence: str = "low"
@@ -516,7 +537,7 @@ class WorkflowAgentResponse(BaseModel):
 
 
 class SourceReadyResponse(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
     file_name: str
     source_path: str
     file_kind: Optional[str] = None
@@ -531,6 +552,7 @@ class MultimodalChatRequest(BaseChatRequest):
     spreadsheet_analysis: Optional[SpreadsheetSourceResponse] = None
     dicom_analysis: Optional[DicomSourceResponse] = None
     image_analysis: Optional[ImageSourceResponse] = None
+    fhir_analysis: Optional[FhirSourceResponse] = None
     primary_source_type: Optional[str] = None
 
 
@@ -546,7 +568,7 @@ class MultimodalChatResponse(BaseChatResponse):
 
 
 class SourceChatRequest(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
     question: str
     analysis_payload: dict[str, Any]
     history: list[ChatTurn] = []
@@ -554,7 +576,7 @@ class SourceChatRequest(BaseModel):
 
 
 class SourceChatResponse(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
     answer: str
     citations: list[str]
     used_fallback: bool

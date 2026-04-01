@@ -14,6 +14,9 @@ from app.models import (
     DicomChatRequest,
     DicomChatResponse,
     DicomSourceResponse,
+    FhirChatRequest,
+    FhirChatResponse,
+    FhirSourceResponse,
     ImageChatRequest,
     ImageChatResponse,
     ImageSourceResponse,
@@ -285,6 +288,7 @@ SOURCE_CHAT_RESPONSE_CLASS: dict[str, type] = {
     "text": TextChatResponse,
     "spreadsheet": SpreadsheetChatResponse,
     "image": ImageChatResponse,
+    "fhir": FhirChatResponse,
 }
 
 
@@ -824,6 +828,47 @@ def _compact_image_context(payload: ImageChatRequest) -> dict[str, object]:
     return context
 
 
+def _compact_fhir_context(payload: FhirChatRequest, **kwargs: Any) -> dict[str, object]:
+    analysis = payload.analysis
+    parts: list[str] = [f"FHIR source: {analysis.file_name}"]
+    parts.append(f"Resource type: {analysis.resource_type}, count: {analysis.resource_count}")
+    patient = analysis.patient_summary
+    if patient:
+        parts.append(f"Patient: {patient.get('full_name', 'n/a')}, {patient.get('gender', 'n/a')}, DOB {patient.get('birth_date', 'n/a')}")
+    obs = analysis.artifacts.get("observations", {})
+    if obs.get("count"):
+        parts.append(f"Observations: {obs['count']} total")
+        for item in (obs.get("items") or [])[:5]:
+            parts.append(f"  - {item.get('code', 'n/a')}: {item.get('value', 'n/a')} ({item.get('effective', 'n/a')})")
+    meds = analysis.artifacts.get("medications", {})
+    if meds.get("count"):
+        parts.append(f"Medications: {meds['count']} total")
+        for item in (meds.get("items") or [])[:5]:
+            parts.append(f"  - {item.get('medication', 'n/a')}: {item.get('status', 'n/a')}")
+    allergies = analysis.artifacts.get("allergies", {})
+    if allergies.get("count"):
+        parts.append(f"Allergies: {allergies['count']} total")
+        for item in (allergies.get("items") or [])[:4]:
+            parts.append(f"  - {item.get('substance', 'n/a')}: {item.get('criticality', 'n/a')}")
+    if analysis.warnings:
+        parts.append(f"Warnings: {'; '.join(analysis.warnings[:5])}")
+    context: dict[str, object] = {
+        "summary": "\n".join(parts),
+        "analysis_id": analysis.analysis_id,
+        "file_name": analysis.file_name,
+        "resource_type": analysis.resource_type,
+        "resource_count": analysis.resource_count,
+        "patient_summary": analysis.patient_summary,
+        "artifacts": {k: v for k, v in analysis.artifacts.items()},
+        "warnings": analysis.warnings[:12],
+        "draft_answer": analysis.draft_answer,
+        "used_tools": analysis.used_tools,
+    }
+    if payload.studio_context:
+        context["studio_context"] = _flatten_studio_context(payload.studio_context)
+    return context
+
+
 CHAT_OPENAI_CONFIG: dict[str, dict[str, Any]] = {
     "vcf": {
         "context_label": "Analysis context JSON",
@@ -938,6 +983,22 @@ CHAT_OPENAI_CONFIG: dict[str, dict[str, Any]] = {
             "You are a helpful general assistant. "
             "The user did not request grounded image reasoning. "
             "Answer from general knowledge only."
+        ),
+    },
+    "fhir": {
+        "context_label": "FHIR clinical context JSON",
+        "compact_context_builder": _compact_fhir_context,
+        "grounded_system_prompt": (
+            "You are a clinical data copilot for FHIR resources. "
+            "The user explicitly requested grounded reasoning via a trigger such as $studio or $current analysis. "
+            "Answer only from the provided FHIR context including patient demographics, observations, medications, allergies, vitals, labs, timeline events, and care team. "
+            "Do not invent clinical findings or lab values that are not present in the provided context. "
+            "Be concise and cite resource types when relevant."
+        ),
+        "general_system_prompt": (
+            "You are a helpful general assistant. "
+            "The user did not request grounded FHIR reasoning. "
+            "Answer from general knowledge only and ignore any uploaded FHIR context unless the user explicitly asks with a grounding trigger such as $studio."
         ),
     },
 }
@@ -1711,6 +1772,10 @@ def answer_image_chat(payload: ImageChatRequest) -> ImageChatResponse:
     return _answer_source_chat("image", payload)
 
 
+def answer_fhir_chat(payload: FhirChatRequest) -> FhirChatResponse:
+    return _answer_source_chat("fhir", payload)
+
+
 def answer_multimodal_chat(payload: MultimodalChatRequest) -> MultimodalChatResponse:
     """Handle chat with merged context from all active sources."""
     # Determine primary source for @tool routing
@@ -1798,6 +1863,11 @@ def _multimodal_to_single(
             question=payload.question, analysis=payload.image_analysis,
             history=payload.history, studio_context=payload.studio_context,
         )
+    if payload.fhir_analysis:
+        sources["fhir"] = FhirChatRequest(
+            question=payload.question, analysis=payload.fhir_analysis,
+            history=payload.history, studio_context=payload.studio_context,
+        )
     if preferred and preferred in sources:
         return preferred, sources[preferred]
     if sources:
@@ -1851,6 +1921,7 @@ def _call_openai_multimodal(payload: MultimodalChatRequest) -> MultimodalChatRes
         "spreadsheet": (SpreadsheetChatRequest, payload.spreadsheet_analysis),
         "dicom": (DicomChatRequest, payload.dicom_analysis),
         "image": (ImageChatRequest, payload.image_analysis),
+        "fhir": (FhirChatRequest, payload.fhir_analysis),
     }
 
     # Build per-source studio contexts from the merged studioContext.

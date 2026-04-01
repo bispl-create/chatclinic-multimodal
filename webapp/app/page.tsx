@@ -476,6 +476,33 @@ type ImageChatResponse = {
   analysis?: ImageSourceResponse | null;
 };
 
+type FhirSourceResponse = {
+  analysis_id: string;
+  source_fhir_path?: string | null;
+  file_name: string;
+  file_kind: string;
+  resource_type: string;
+  resource_count: number;
+  patient_summary: string;
+  metadata_items: Array<Record<string, any>>;
+  studio_cards: Array<Record<string, any>>;
+  artifacts: Record<string, any>;
+  warnings: string[];
+  draft_answer: string;
+  used_tools: string[];
+  tool_registry: AnalysisResponse["tool_registry"];
+};
+
+type FhirChatResponse = {
+  answer: string;
+  citations: string[];
+  used_fallback: boolean;
+  result_kind?: string | null;
+  requested_view?: StudioView | null;
+  studio?: { renderer?: string | null } | null;
+  analysis?: FhirSourceResponse | null;
+};
+
 type RPlotResponse = {
   tool: string;
   input_path: string;
@@ -517,13 +544,13 @@ type RawQcChatResponse = {
 };
 
 type SourceReadyResponse = {
-  source_type: "vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image";
+  source_type: "vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | "fhir";
   file_name: string;
   source_path: string;
   file_kind?: string | null;
 };
 
-type SessionMode = "prs" | "vcf_analysis" | "raw_sequence" | "text_review" | "spreadsheet_review" | "imaging_review" | "image_review";
+type SessionMode = "prs" | "vcf_analysis" | "raw_sequence" | "text_review" | "spreadsheet_review" | "imaging_review" | "image_review" | "fhir_review";
 
 type PrsPrepResponse = {
   analysis_id: string;
@@ -597,7 +624,8 @@ type StudioView =
   | "references"
   | "igv"
   | "annotations"
-  | "image_review";
+  | "image_review"
+  | "fhir_browser";
 
 type RohStudioSegment = {
   label: string;
@@ -674,6 +702,18 @@ function isImageFileName(fileName: string) {
     lowered.endsWith(".bmp") ||
     lowered.endsWith(".webp")
   );
+}
+
+function isFhirFileName(fileName: string) {
+  const lowered = fileName.toLowerCase();
+  if (lowered.endsWith(".fhir.json") || lowered.endsWith(".fhir.xml") || lowered.endsWith(".ndjson")) {
+    return true;
+  }
+  // Match any JSON/XML file with FHIR-related keywords in the name
+  if (lowered.endsWith(".json") || lowered.endsWith(".xml")) {
+    return lowered.includes("fhir") || lowered.includes("bundle") || lowered.includes("patient");
+  }
+  return false;
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -1234,7 +1274,7 @@ export default function Page() {
     {
       role: "assistant",
       content:
-        "Upload a source file to get started. Supported formats: VCF (variant interpretation), FASTQ/BAM/SAM (raw sequencing QC), summary statistics, Excel workbooks, text/markdown notes, DICOM images, and PNG/JPG/TIFF images. The appropriate tools will run automatically after upload.",
+        "Upload a source file to get started. Supported formats: VCF (variant interpretation), FASTQ/BAM/SAM (raw sequencing QC), summary statistics, Excel workbooks, text/markdown notes, DICOM images, PNG/JPG/TIFF images, and FHIR clinical bundles (.fhir.json, .fhir.xml, .ndjson). The appropriate tools will run automatically after upload.",
     },
   ]);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
@@ -1244,11 +1284,12 @@ export default function Page() {
   const [spreadsheetAnalysis, setSpreadsheetAnalysis] = useState<SpreadsheetSourceResponse | null>(null);
   const [textAnalysis, setTextAnalysis] = useState<TextSourceResponse | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<ImageSourceResponse | null>(null);
+  const [fhirAnalysis, setFhirAnalysis] = useState<FhirSourceResponse | null>(null);
   const [summaryStatsGridRows, setSummaryStatsGridRows] = useState<Array<Record<string, string>>>([]);
   const [summaryStatsHasMore, setSummaryStatsHasMore] = useState(false);
   const [summaryStatsRowsLoading, setSummaryStatsRowsLoading] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
-  const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | null>(null);
+  const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | "fhir" | null>(null);
   const [activeSource, setActiveSource] = useState<SourceReadyResponse | null>(null);
   const [uploadedSources, setUploadedSources] = useState<Array<{ name: string; sourceType: string; timestamp: number }>>([]);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
@@ -1262,6 +1303,7 @@ export default function Page() {
     if (src === "spreadsheet") return "spreadsheet_review";
     if (src === "dicom") return "imaging_review";
     if (src === "image") return "image_review";
+    if (src === "fhir") return "fhir_review";
     return null;
   }, [attachedSourceType]);
   const [pendingUploadRole, setPendingUploadRole] = useState<"default" | "prs_summary" | "prs_target">("default");
@@ -1310,6 +1352,7 @@ export default function Page() {
     : sessionMode === "imaging_review" || sessionMode === "image_review" ? "medical-image"
     : sessionMode === "spreadsheet_review" ? "spreadsheet"
     : sessionMode === "text_review" ? "text"
+    : sessionMode === "fhir_review" ? "clinical-message"
     : null;
   const activeToolRegistry = (() => {
     const base =
@@ -1327,8 +1370,10 @@ export default function Page() {
             ? textAnalysis.tool_registry
           : imageAnalysis?.tool_registry?.length
             ? imageAnalysis.tool_registry
+          : fhirAnalysis?.tool_registry?.length
+            ? fhirAnalysis.tool_registry
           : toolRegistry;
-    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis && sessionModeModality) {
+    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis && !fhirAnalysis && sessionModeModality) {
       return (base ?? []).filter((t) => t.modality === sessionModeModality);
     }
     return base;
@@ -1535,7 +1580,9 @@ export default function Page() {
             : "prs_target"
         : "default";
     const guessedSourceType =
-      isRawQcFileName(file.name)
+      isFhirFileName(file.name)
+        ? "fhir"
+        : isRawQcFileName(file.name)
         ? "raw_qc"
         : isDicomFileName(file.name)
           ? "dicom"
@@ -1557,7 +1604,9 @@ export default function Page() {
       return [...filtered, { name: file.name, sourceType: guessedSourceType, timestamp: Date.now() }];
     });
     setStatus(
-      guessedSourceType === "spreadsheet"
+      guessedSourceType === "fhir"
+        ? "Uploading FHIR source..."
+        : guessedSourceType === "spreadsheet"
         ? "Uploading spreadsheet source..."
         : guessedSourceType === "dicom"
           ? "Uploading DICOM source..."
@@ -1606,6 +1655,8 @@ export default function Page() {
       setTextAnalysis(null);
     } else if (guessedSourceType === "image") {
       setImageAnalysis(null);
+    } else if (guessedSourceType === "fhir") {
+      setFhirAnalysis(null);
     }
     setFollowUpAnswer(null);
     // Multimodal: preserve chat history and studio view across source uploads.
@@ -1616,6 +1667,29 @@ export default function Page() {
     }
     setError(null);
     try {
+      if (guessedSourceType === "fhir") {
+        const payload = await handleStartFhirReview(file, { silent: true });
+        if (!payload) {
+          event.target.value = "";
+          setPendingUploadRole("default");
+          return;
+        }
+        setActiveSource({
+          source_type: "fhir",
+          file_name: payload.file_name,
+          source_path: payload.source_fhir_path ?? "",
+          file_kind: payload.file_kind,
+        });
+        setStatus("FHIR review ready");
+        addMessage({
+          role: "assistant",
+          content: `FHIR source \`${file.name}\` is loaded and reviewed automatically. Open the Studio FHIR Browser card to inspect patient, medications, labs, and care team.`,
+        });
+        event.target.value = "";
+        setPendingUploadRole("default");
+        return;
+      }
+
       if (guessedSourceType === "image") {
         const payload = await handleStartImageReview(file, { silent: true });
         if (!payload) {
@@ -2527,6 +2601,51 @@ export default function Page() {
     }
   }
 
+  async function handleStartFhirReview(
+    file: File,
+    options?: { silent?: boolean },
+  ): Promise<FhirSourceResponse | null> {
+    const silent = options?.silent ?? false;
+    setError(null);
+    setStatus("Running FHIR review...");
+    if (!silent) {
+      addMessage({
+        role: "assistant",
+        content: "FHIR Bundle을 읽고 환자, 약물, 검사, 진료팀 정보를 추출하고 있습니다.",
+        kind: "status",
+      });
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/fhir/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload: FhirSourceResponse = await response.json();
+      setFhirAnalysis(payload);
+      activateStudioFromPayload(payload, "fhir_browser", "fhir");
+      setStatus("FHIR review ready");
+      setComposerText("");
+      return payload;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setError(message);
+      setStatus("FHIR review failed");
+      addMessage({
+        role: "assistant",
+        content: `FHIR review 중 오류가 발생했습니다: ${message}`,
+      });
+      return null;
+    }
+  }
+
   async function handleStartSpreadsheetReview(
     file: File,
     options?: { silent?: boolean },
@@ -2782,7 +2901,7 @@ export default function Page() {
       return;
     }
 
-    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis) {
+    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis && !fhirAnalysis) {
       addMessage({ role: "user", content: text });
       setComposerText("");
       addMessage({
@@ -2793,7 +2912,7 @@ export default function Page() {
     }
 
     // Count active sources — use multimodal endpoint when >1 source is loaded
-    const activeSourceCount = [analysis, rawQcAnalysis, summaryStatsAnalysis, dicomAnalysis, spreadsheetAnalysis, textAnalysis, imageAnalysis].filter(Boolean).length;
+    const activeSourceCount = [analysis, rawQcAnalysis, summaryStatsAnalysis, dicomAnalysis, spreadsheetAnalysis, textAnalysis, imageAnalysis, fhirAnalysis].filter(Boolean).length;
 
     if (activeSourceCount > 1) {
       setComposerText("");
@@ -2841,6 +2960,12 @@ export default function Page() {
     if (imageAnalysis) {
       setComposerText("");
       await handleAskImageQuestion(text);
+      return;
+    }
+
+    if (fhirAnalysis) {
+      setComposerText("");
+      await handleAskFhirQuestion(text);
       return;
     }
 
@@ -3306,6 +3431,48 @@ export default function Page() {
     }
   }
 
+  async function handleAskFhirQuestion(questionText?: string, analysisOverride?: FhirSourceResponse | null) {
+    const text = questionText?.trim() ?? "";
+    const activeAnalysis = analysisOverride ?? fhirAnalysis;
+    if (!text || !activeAnalysis) {
+      return;
+    }
+
+    setStatus("Generating answer...");
+    setAnalysisQa((current) => [...current, { role: "user", content: text }]);
+
+    try {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/chat/fhir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: text,
+          analysis: activeAnalysis,
+          history: analysisQa.map((turn) => ({ role: turn.role, content: turn.content })),
+          studio_context: studioContext,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload: FhirChatResponse = await response.json();
+      if (payload.analysis) {
+        setFhirAnalysis(payload.analysis);
+      }
+      activateStudioFromPayload(payload, "fhir_browser", "fhir");
+      setAnalysisQa((current) => [...current, { role: "assistant", content: payload.answer }]);
+      setFollowUpAnswer(payload.answer);
+      setStatus("Answer ready");
+    } catch (caught) {
+      const msg = caught instanceof Error ? caught.message : String(caught);
+      setAnalysisQa((current) => [
+        ...current,
+        { role: "assistant", content: `설명 요청 중 오류가 발생했습니다: ${msg}` },
+      ]);
+      setStatus("Answer failed");
+    }
+  }
+
   async function handleAskMultimodalQuestion(questionText?: string) {
     const text = questionText?.trim() ?? "";
     if (!text) return;
@@ -3326,6 +3493,7 @@ export default function Page() {
           spreadsheet_analysis: spreadsheetAnalysis ?? undefined,
           dicom_analysis: dicomAnalysis ?? undefined,
           image_analysis: imageAnalysis ?? undefined,
+          fhir_analysis: fhirAnalysis ?? undefined,
           primary_source_type: (() => {
             // Infer focused source from active studio view
             const v = activeStudioView ?? "";
@@ -3333,6 +3501,7 @@ export default function Page() {
               if (v.includes("cohort_browser") || v.startsWith("sheet::")) return "spreadsheet";
               if (v === "dicom_review" || v.startsWith("dicom")) return "dicom";
               if (v === "image_review") return "image";
+              if (v === "fhir_browser") return "fhir";
               if (v === "rawqc" || v === "samtools") return "raw_qc";
               if (v === "sumstats" || v === "qqman" || v === "prs_prep") return "summary_stats";
               if (v === "text") return "text";
@@ -3422,9 +3591,11 @@ export default function Page() {
         ? textAnalysis.draft_answer
       : imageAnalysis
         ? imageAnalysis.draft_answer
+      : fhirAnalysis
+        ? fhirAnalysis.draft_answer
       : null;
   const displayedAnswer = followUpAnswer ?? summaryText;
-  const hasInteractiveState = Boolean(attachedFile || analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || messages.length > 1);
+  const hasInteractiveState = Boolean(attachedFile || analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || fhirAnalysis || messages.length > 1);
   const latestStatusMessage =
     [...messages].reverse().find((message) => message.kind === "status" || message.kind === "summary")?.content ?? "";
   const sourceStatusDetail = useMemo(() => {
@@ -3542,6 +3713,18 @@ export default function Page() {
     if (status === "Spreadsheet review failed") {
       return "Spreadsheet intake failed. Check the workbook format and whether the required parser dependency is installed.";
     }
+    if (status === "Uploading FHIR source...") {
+      return "The FHIR source is being uploaded and prepared for clinical review.";
+    }
+    if (status === "Running FHIR review...") {
+      return "The FHIR upload is complete. ChatClinic is extracting patient, observation, medication, and care team resources.";
+    }
+    if (status === "FHIR review ready") {
+      return "The uploaded FHIR bundle has been converted into a clinical browser surface in Studio.";
+    }
+    if (status === "FHIR review failed") {
+      return "FHIR intake failed. Check the file format, encoding, and whether it contains a valid FHIR Bundle.";
+    }
     if (status === "DICOM review failed") {
       return "DICOM intake failed. Check the file validity and preview dependencies such as pydicom, numpy, and Pillow.";
     }
@@ -3583,6 +3766,8 @@ export default function Page() {
     status === "Uploading summary statistics source..." ||
     status === "Uploading raw sequencing source..." ||
     status === "Uploading VCF source..." ||
+    status === "Uploading FHIR source..." ||
+    status === "Running FHIR review..." ||
     status === "Running FastQC..." ||
     status === "Loading summary statistics..." ||
     status === "Running Liftover..." ||
@@ -3596,6 +3781,7 @@ export default function Page() {
     status === "Summary stats failed" ||
     status === "Spreadsheet review failed" ||
     status === "DICOM review failed" ||
+    status === "FHIR review failed" ||
     status === "Answer failed" ||
     status === "Liftover failed" ||
     status === "qqman failed" ||
@@ -3612,7 +3798,7 @@ export default function Page() {
     status === "PLINK ready" ||
     status === "PLINK score ready"
       ? status
-      : analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis
+      : analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || fhirAnalysis
         ? analysis
           ? "Analysis ready"
           : rawQcAnalysis
@@ -3627,10 +3813,12 @@ export default function Page() {
                     ? "Text review ready"
                     : imageAnalysis
                       ? "Image review ready"
-                      : "Analysis ready"
+                      : fhirAnalysis
+                        ? "FHIR review ready"
+                        : "Analysis ready"
         : status;
   const summaryTurn =
-    analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || imageAnalysis
+    analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || imageAnalysis || fhirAnalysis
       ? [
           {
             role: "assistant" as const,
@@ -3861,6 +4049,7 @@ export default function Page() {
       dicomAnalysis ||
       textAnalysis ||
       imageAnalysis ||
+      fhirAnalysis ||
       prsPrepResultForStudio ||
       qqmanResultForStudio ||
       snpeffResultForStudio ||
@@ -3996,6 +4185,21 @@ export default function Page() {
       }
     }
 
+    // FHIR cards
+    if (fhirAnalysis) {
+      if (fhirAnalysis.studio_cards?.length) {
+        fhirAnalysis.studio_cards.forEach((card) => {
+          cards.push({
+            id: String(card.id ?? "fhir_browser") as StudioView,
+            title: String(card.title ?? "FHIR Browser"),
+            subtitle: String(card.subtitle ?? "Patient, medications, labs, and care team"),
+          });
+        });
+      } else {
+        cards.push({ id: "fhir_browser" as StudioView, title: "FHIR Browser", subtitle: "Patient, medications, labs, and care team" });
+      }
+    }
+
     // Orphan direct tool results (no parent analysis loaded)
     if (!analysis && !rawQcAnalysis) {
       if (samtoolsResultForStudio) cards.push({ id: "samtools" as StudioView, title: "Samtools Review", subtitle: "Alignment QC summary" });
@@ -4021,6 +4225,7 @@ export default function Page() {
     spreadsheetAnalysis,
     textAnalysis,
     imageAnalysis,
+    fhirAnalysis,
     prsPrepResultForStudio,
     qqmanResultForStudio,
     samtoolsResultForStudio,
@@ -4396,7 +4601,33 @@ export default function Page() {
       };
     }
 
-    if (!analysis && !dicomAnalysis && !spreadsheetAnalysis && !imageAnalysis) {
+    // --- FHIR source ---
+    if (fhirAnalysis) {
+      if (!analysis && !dicomAnalysis && !spreadsheetAnalysis && !imageAnalysis) {
+        merged.current_card = {
+          file_name: fhirAnalysis.file_name,
+          resource_type: fhirAnalysis.resource_type,
+          resource_count: fhirAnalysis.resource_count,
+          patient_summary: fhirAnalysis.patient_summary,
+        };
+        merged.current_summary = {
+          resource_type: fhirAnalysis.resource_type,
+          resource_count: fhirAnalysis.resource_count,
+          patient_summary: fhirAnalysis.patient_summary,
+        };
+      }
+      allWarnings.push(...(Array.isArray(fhirAnalysis.warnings) ? fhirAnalysis.warnings.slice(0, 12) : []));
+      mergedExtra.fhir = {
+        file_name: fhirAnalysis.file_name,
+        file_kind: fhirAnalysis.file_kind,
+        resource_type: fhirAnalysis.resource_type,
+        resource_count: fhirAnalysis.resource_count,
+        patient_summary: fhirAnalysis.patient_summary,
+        metadata_items: fhirAnalysis.metadata_items,
+      };
+    }
+
+    if (!analysis && !dicomAnalysis && !spreadsheetAnalysis && !imageAnalysis && !fhirAnalysis) {
       return {};
     }
 
@@ -4410,6 +4641,7 @@ export default function Page() {
     dicomAnalysis,
     spreadsheetAnalysis,
     imageAnalysis,
+    fhirAnalysis,
     candidateVariants,
     clinicalCoverage,
     filteringSummary,

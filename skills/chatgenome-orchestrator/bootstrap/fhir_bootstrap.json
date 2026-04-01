@@ -1,0 +1,6 @@
+{
+  "name": "fhir_bootstrap",
+  "source_type": "fhir",
+  "runner": "fhir",
+  "upload_subdir": "fhir"
+}

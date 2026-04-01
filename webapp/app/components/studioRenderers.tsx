@@ -38,6 +38,7 @@ const STUDIO_RENDERER_METADATA: Record<string, { requestedViews?: string[]; resu
   references: { requestedViews: ["references"] },
   igv: { requestedViews: ["igv"] },
   annotations: { requestedViews: ["annotations"] },
+  fhir_browser: { requestedViews: ["fhir_browser"] },
 };
 
 function findRendererKeyByRequestedView(requestedView?: string | null): string | null {

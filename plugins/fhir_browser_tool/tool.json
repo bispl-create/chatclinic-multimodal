@@ -1,0 +1,9 @@
+{
+  "name": "fhir_browser_tool",
+  "description": "Parse FHIR JSON, XML, or NDJSON bundles into patient, observation, medication, allergy, vital, timeline, lab, and care team artifacts for the FHIR Browser studio card.",
+  "task": "fhir_review",
+  "modality": "clinical-message",
+  "approval_required": false,
+  "source": "plugin",
+  "entrypoint": "plugins.fhir_browser_tool.logic:execute"
+}

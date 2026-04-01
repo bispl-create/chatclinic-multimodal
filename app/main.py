@@ -18,6 +18,9 @@ from app.models import (
     DicomChatRequest,
     DicomChatResponse,
     DicomSourceResponse,
+    FhirChatRequest,
+    FhirChatResponse,
+    FhirSourceResponse,
     ImageChatRequest,
     ImageChatResponse,
     ImageSourceResponse,
@@ -67,6 +70,7 @@ from app.models import (
 from app.services.chat import (
     answer_analysis_chat,
     answer_dicom_chat,
+    answer_fhir_chat,
     answer_image_chat,
     answer_multimodal_chat,
     answer_raw_qc_chat,
@@ -268,12 +272,13 @@ def _safe_fastqc_artifact_path(path_str: str) -> Path:
 def _resolve_source_upload(filename: str, expected_source_type: str | None = None) -> tuple[str, str]:
     detected = detect_source_registration(filename)
     if detected is None:
+        # When a dedicated upload endpoint already knows the source type,
+        # trust it even if the file extension is not in the registry.
         if expected_source_type is not None:
-            detail = source_upload_detail(expected_source_type)
-            raise HTTPException(status_code=400, detail=detail or "Unsupported upload type.")
+            return expected_source_type, filename
         raise HTTPException(
             status_code=400,
-            detail="Unsupported source type. Upload a VCF, raw sequencing file, summary statistics file, spreadsheet workbook, registered text note, or DICOM file.",
+            detail="Unsupported source type. Upload a VCF, raw sequencing file, summary statistics file, spreadsheet workbook, registered text note, DICOM file, or FHIR bundle.",
         )
     source_type, _, _ = detected
     if expected_source_type is not None and source_type != expected_source_type:
@@ -287,7 +292,7 @@ def _run_source_bootstrap(
     durable_path: Path,
     file_name: str,
     **kwargs: object,
-) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
+) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse | FhirSourceResponse:
     bootstrap_source_type = source_bootstrap_type(source_type)
     if load_bootstrap_manifest(bootstrap_source_type) is None:
         raise HTTPException(status_code=500, detail=f"The {source_type} bootstrap manifest is not available.")
@@ -306,6 +311,7 @@ def _run_source_bootstrap(
             "spreadsheet": "Spreadsheet intake",
             "text": "Text intake",
             "dicom": "DICOM intake",
+            "fhir": "FHIR intake",
         }.get(source_type, "Bootstrap analysis")
         raise HTTPException(status_code=400, detail=f"{label} failed: {exc}") from exc
 
@@ -315,7 +321,7 @@ def _persist_and_bootstrap_upload(
     file_name: str,
     data: bytes,
     **kwargs: object,
-) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
+) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse | FhirSourceResponse:
     bootstrap_source_type = source_bootstrap_type(source_type)
     durable_path = persist_uploaded_source_bytes(bootstrap_source_type, file_name, data)
     return _run_source_bootstrap(source_type, durable_path, file_name, **kwargs)
@@ -423,7 +429,7 @@ def _resolve_source_path_request(request: SourceFromPathRequest) -> tuple[str, P
 
 def _analyze_registered_source_path(
     request: SourceFromPathRequest,
-) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
+) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse | FhirSourceResponse:
     source_type, source_path, file_name = _resolve_source_path_request(request)
     return _run_source_bootstrap(
         source_type,
@@ -532,7 +538,7 @@ def analyze_from_path_async(request: FromPathRequest) -> AnalysisJobResponse:
 )
 def analyze_registered_source_from_path(
     request: SourceFromPathRequest,
-) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
+) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse | FhirSourceResponse:
     try:
         return _analyze_registered_source_path(request)
     except FileNotFoundError as exc:
@@ -599,6 +605,11 @@ def chat_about_dicom(request: DicomChatRequest) -> DicomChatResponse:
 @app.post("/api/v1/chat/image", response_model=ImageChatResponse)
 def chat_about_image(request: ImageChatRequest) -> ImageChatResponse:
     return answer_image_chat(request)
+
+
+@app.post("/api/v1/chat/fhir", response_model=FhirChatResponse)
+def chat_about_fhir(request: FhirChatRequest) -> FhirChatResponse:
+    return answer_fhir_chat(request)
 
 
 @app.post("/api/v1/chat/spreadsheet", response_model=SpreadsheetChatResponse)
@@ -755,6 +766,18 @@ async def analyze_image_upload(file: UploadFile = File(...)) -> ImageSourceRespo
         await file.read(),
         ImageSourceResponse,
         "Unexpected bootstrap response type for image upload.",
+    )
+
+
+@app.post("/api/v1/fhir/upload", response_model=FhirSourceResponse)
+async def analyze_fhir_upload(file: UploadFile = File(...)) -> FhirSourceResponse:
+    filename = file.filename or "bundle.fhir.json"
+    return _typed_bootstrap_upload(
+        "fhir",
+        filename,
+        await file.read(),
+        FhirSourceResponse,
+        "Unexpected bootstrap response type for FHIR upload.",
     )
 
 

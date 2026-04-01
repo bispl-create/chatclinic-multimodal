@@ -379,6 +379,321 @@ function ImageReviewCard({
   );
 }
 
+// ---------------------------------------------------------------------------
+// FHIR helpers
+// ---------------------------------------------------------------------------
+
+function fhirFormatAge(birthDate?: string) {
+  if (!birthDate || birthDate === "n/a") return "n/a";
+  const birth = new Date(birthDate);
+  if (Number.isNaN(birth.getTime())) return "n/a";
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) age -= 1;
+  return String(age);
+}
+
+function fhirDateToNumber(value?: string) {
+  if (!value || value === "n/a") return null;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function fhirClampPercent(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
+function FhirMetadataRows({ rows }: { rows: Array<{ label: string; value: string | undefined | null }> }) {
+  return (
+    <div className="metadataTable">
+      {rows.map((row) => (
+        <div key={row.label} className="metadataRow">
+          <span className="metadataLabel">{row.label}</span>
+          <span className="metadataValue">{row.value && String(row.value).trim() ? row.value : "n/a"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FHIR Browser Card
+// ---------------------------------------------------------------------------
+
+type FhirPatientArtifact = { resource_type?: string; id?: string; full_name?: string; gender?: string; birth_date?: string; active?: string; managing_organization?: string; identifiers?: Array<{ system?: string; value?: string; use?: string }>; telecom?: Array<{ system?: string; value?: string; use?: string }>; addresses?: Array<{ line?: string; city?: string; state?: string; postalCode?: string; country?: string }> };
+type FhirAllergyArtifact = { count?: number; items?: Array<{ substance?: string; criticality?: string; clinical_status?: string; verification_status?: string }> };
+type FhirVitalArtifact = { items?: Array<{ label?: string; value?: string; effective?: string; status?: string }> };
+type FhirMedicationArtifact = { count?: number; items?: Array<{ medication?: string; status?: string; intent?: string; date?: string; dosage?: string; start?: string; end?: string; duration_days?: number | null; current?: boolean }> };
+type FhirTimelineArtifact = { events?: Array<{ type?: string; label?: string; start?: string; end?: string; status?: string }> };
+type FhirLabArtifact = { series?: Array<{ label?: string; points?: Array<{ date?: string; value?: number; unit?: string; low?: number | null; high?: number | null }> }>; latest?: Array<{ label?: string; value?: number | string; unit?: string; low?: number | null; high?: number | null }> };
+type FhirCareTeamArtifact = { practitioners?: Array<{ name?: string; role?: string; contact?: string; organization?: string }>; organizations?: Array<{ name?: string; contact?: string }> };
+
+function FhirBrowserCard({ analysis }: { analysis: any }) {
+  const artifacts: Record<string, any> = analysis?.artifacts ?? {};
+  const patient = (artifacts.patient as FhirPatientArtifact | undefined) ?? {};
+  const allergies = (artifacts.allergies as FhirAllergyArtifact | undefined) ?? {};
+  const vitals = (artifacts.vitals as FhirVitalArtifact | undefined) ?? {};
+  const medications = (artifacts.medications as FhirMedicationArtifact | undefined) ?? {};
+  const timeline = (artifacts.timeline as FhirTimelineArtifact | undefined) ?? {};
+  const labs = (artifacts.labs as FhirLabArtifact | undefined) ?? {};
+  const careTeam = (artifacts.care_team as FhirCareTeamArtifact | undefined) ?? {};
+
+  const patientInitial = (patient.full_name || "P").charAt(0).toUpperCase();
+  const age = fhirFormatAge(patient.birth_date);
+  const vitalItems = vitals.items ?? [];
+  const allergyItems = allergies.items ?? [];
+  const medicationItems = medications.items ?? [];
+  const eventItems = timeline.events ?? [];
+  const labSeries = labs.series ?? [];
+  const carePractitioners = careTeam.practitioners ?? [];
+  const careOrganizations = careTeam.organizations ?? [];
+
+  // Timeline extent
+  const datedEvents = [...eventItems, ...medicationItems].map((item: any) => fhirDateToNumber("start" in item ? item.start : undefined) ?? fhirDateToNumber("date" in item ? item.date : undefined)).filter((v): v is number => v !== null);
+  const timelineMin = datedEvents.length ? Math.min(...datedEvents) : null;
+  const timelineMax = datedEvents.length ? Math.max(...datedEvents) : null;
+  const timelineSpan = timelineMin !== null && timelineMax !== null && timelineMax > timelineMin ? timelineMax - timelineMin : 1;
+
+  // Lab extent
+  const labPoints = labSeries.flatMap((s: any) => s.points ?? []);
+  const labDates = labPoints.map((p: any) => fhirDateToNumber(p.date)).filter((v): v is number => v !== null);
+  const labValues = labPoints.map((p: any) => p.value).filter((v): v is number => typeof v === "number");
+  const labMinDate = labDates.length ? Math.min(...labDates) : null;
+  const labMaxDate = labDates.length ? Math.max(...labDates) : null;
+  const labMinValue = labValues.length ? Math.min(...labValues) : null;
+  const labMaxValue = labValues.length ? Math.max(...labValues) : null;
+  const labDateSpan = labMinDate !== null && labMaxDate !== null && labMaxDate > labMinDate ? labMaxDate - labMinDate : 1;
+  const labValueSpan = labMinValue !== null && labMaxValue !== null && labMaxValue > labMinValue ? labMaxValue - labMinValue : 1;
+  const lineColors = ["#2f80ed", "#f97331", "#16a34a", "#8b5cf6", "#ef4444", "#0f766e"];
+
+  return (
+    <section className="notebookPanel studioCanvasPanel">
+      <div className="notebookHeader">
+        <h2>FHIR Browser</h2>
+        <span className="pill">{analysis?.file_name ?? "fhir"}</span>
+      </div>
+      <div className="studioCanvasBody">
+        {/* Summary header: patient + allergies + vitals */}
+        <section className="fhirSummaryHeader">
+          <article className="artifactCard">
+            <strong>FHIR patient overview</strong>
+            <div className="patientHero">
+              <div className="patientAvatar">{patientInitial}</div>
+              <div>
+                <div className="patientName">{patient.full_name || "Unknown patient"}</div>
+                <div className="mutedText">
+                  {patient.gender || "n/a"} / age {age} / Patient ID {patient.id || "n/a"}
+                </div>
+              </div>
+            </div>
+            <FhirMetadataRows rows={[
+              { label: "Birth Date", value: patient.birth_date },
+              { label: "Active", value: patient.active },
+              { label: "Managing Org", value: patient.managing_organization },
+            ]} />
+          </article>
+
+          <article className="artifactCard">
+            <strong>AllergyIntolerance alerts</strong>
+            {allergyItems.length ? (
+              <div className="alertStack">
+                {allergyItems.map((item: any, index: number) => (
+                  <div key={`allergy-${index}`} className="allergyBadge">
+                    <span className="allergyDot" />
+                    <div>
+                      <strong>{item.substance || "Unknown allergen"}</strong>
+                      <p className="mutedText">
+                        {item.criticality || "n/a"} / {item.clinical_status || "n/a"}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mutedText">No AllergyIntolerance resources are available.</p>
+            )}
+          </article>
+
+          <article className="artifactCard">
+            <strong>Latest vital signs</strong>
+            {vitalItems.length ? (
+              <div className="vitalGrid">
+                {vitalItems.map((item: any, index: number) => (
+                  <div key={`vital-${index}`} className="vitalTile">
+                    <span className="vitalLabel">{item.label || "Vital"}</span>
+                    <strong>{item.value || "n/a"}</strong>
+                    <small>{item.effective || item.status || "n/a"}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mutedText">No latest vital observations are available.</p>
+            )}
+          </article>
+        </section>
+
+        {/* Main grid: timeline + lab chart */}
+        <section className="fhirMainGrid">
+          <article className="artifactCard">
+            <strong>Medical &amp; medication timeline</strong>
+            <div className="timelineSection">
+              <div className="timelineSectionTitle">Events</div>
+              {eventItems.length ? (
+                <div className="timelineTrackList">
+                  {eventItems.map((item: any, index: number) => {
+                    const start = fhirDateToNumber(item.start);
+                    const end = fhirDateToNumber(item.end) ?? start;
+                    const left = start !== null && timelineMin !== null ? fhirClampPercent(((start - timelineMin) / timelineSpan) * 100) : 0;
+                    const width = start !== null && end !== null ? Math.max(8, fhirClampPercent((((end - start) || 1) / timelineSpan) * 100)) : 12;
+                    return (
+                      <div key={`event-${index}`} className="timelineRow">
+                        <div className="timelineLabel">
+                          <strong>{item.label || item.type || "Event"}</strong>
+                          <small>{item.type || "Event"} / {item.status || "n/a"}</small>
+                        </div>
+                        <div className="timelineBarArea">
+                          <div className="timelineBar eventBar" style={{ left: `${left}%`, width: `${width}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mutedText">No Encounter or Procedure events are available.</p>
+              )}
+            </div>
+
+            <div className="timelineSection">
+              <div className="timelineSectionTitle">Medications</div>
+              {medicationItems.length ? (
+                <div className="fhirAccordionList">
+                  {medicationItems.map((item: any, index: number) => {
+                    const start = fhirDateToNumber(item.start || item.date);
+                    const end = fhirDateToNumber(item.end) ?? start;
+                    const left = start !== null && timelineMin !== null ? fhirClampPercent(((start - timelineMin) / timelineSpan) * 100) : 0;
+                    const width = start !== null && end !== null ? Math.max(8, fhirClampPercent((((end - start) || 1) / timelineSpan) * 100)) : 12;
+                    return (
+                      <details key={`med-${index}`} className="fhirAccordionItem">
+                        <summary>
+                          <div className="timelineSummary">
+                            <span>{item.medication || "Unknown medication"}</span>
+                            <span className={`timelineStatus ${item.current ? "timelineStatusCurrent" : "timelineStatusPast"}`}>
+                              {item.current ? "Current" : item.status || "Ended"}
+                            </span>
+                          </div>
+                        </summary>
+                        <div className="timelineBarArea timelineBarAreaExpanded">
+                          <div className={`timelineBar ${item.current ? "medBarActive" : "medBarPast"}`} style={{ left: `${left}%`, width: `${width}%` }} />
+                        </div>
+                        <FhirMetadataRows rows={[
+                          { label: "Status", value: item.status },
+                          { label: "Intent", value: item.intent },
+                          { label: "Start", value: item.start || item.date },
+                          { label: "End", value: item.end },
+                          { label: "Duration (days)", value: item.duration_days != null ? String(item.duration_days) : "n/a" },
+                          { label: "Dosage", value: item.dosage },
+                        ]} />
+                      </details>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mutedText">No medication history is available.</p>
+              )}
+            </div>
+          </article>
+
+          <article className="artifactCard">
+            <strong>Lab graph &amp; insights</strong>
+            {labSeries.length ? (
+              <>
+                <svg className="labChart" viewBox="0 0 560 280" preserveAspectRatio="none">
+                  {labSeries.slice(0, 4).map((series: any, seriesIndex: number) => {
+                    const points = (series.points ?? [])
+                      .map((point: any) => {
+                        const xDate = fhirDateToNumber(point.date);
+                        if (xDate === null || labMinDate === null || labMaxDate === null || labMinValue === null || labMaxValue === null || typeof point.value !== "number") return null;
+                        const x = 30 + ((xDate - labMinDate) / labDateSpan) * 500;
+                        const y = 240 - ((point.value - labMinValue) / labValueSpan) * 190;
+                        return `${x},${y}`;
+                      })
+                      .filter(Boolean)
+                      .join(" ");
+                    if (!points) return null;
+                    return <polyline key={`series-${seriesIndex}`} fill="none" stroke={lineColors[seriesIndex % lineColors.length]} strokeWidth="3" points={points} />;
+                  })}
+                  {(labs.latest ?? []).map((item: any, index: number) =>
+                    typeof item.low === "number" && typeof item.high === "number" && labMinValue !== null && labMaxValue !== null ? (
+                      <rect
+                        key={`range-${index}`}
+                        x="30"
+                        width="500"
+                        y={240 - ((item.high - labMinValue) / labValueSpan) * 190}
+                        height={Math.max(6, ((item.high - item.low) / labValueSpan) * 190)}
+                        fill="rgba(47,128,237,0.08)"
+                      />
+                    ) : null,
+                  )}
+                </svg>
+                <div className="insightGrid">
+                  {(labs.latest ?? []).slice(0, 4).map((item: any, index: number) => (
+                    <div key={`insight-${index}`} className="insightTile">
+                      <strong>{item.label || "Lab"}</strong>
+                      <span>{item.value} {item.unit || ""}</span>
+                      <small>Normal {item.low ?? "n/a"} - {item.high ?? "n/a"}</small>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="mutedText">No numeric Observation trends are available for graph review.</p>
+            )}
+          </article>
+        </section>
+
+        {/* Care team */}
+        <article className="artifactCard">
+          <strong>Care team map</strong>
+          <div className="careTeamGrid">
+            <div>
+              <div className="timelineSectionTitle">Practitioners</div>
+              {carePractitioners.length ? (
+                <div className="careCardStack">
+                  {carePractitioners.map((item: any, index: number) => (
+                    <div key={`prac-${index}`} className="careCard">
+                      <strong>{item.name || "Unknown practitioner"}</strong>
+                      <small>{item.role || "Practitioner"}</small>
+                      <small>{item.contact || "n/a"}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mutedText">No Practitioner resources are available.</p>
+              )}
+            </div>
+            <div>
+              <div className="timelineSectionTitle">Organizations</div>
+              {careOrganizations.length ? (
+                <div className="careCardStack">
+                  {careOrganizations.map((item: any, index: number) => (
+                    <div key={`org-${index}`} className="careCard">
+                      <strong>{item.name || "Unknown organization"}</strong>
+                      <small>{item.contact || "n/a"}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mutedText">No Organization resources are available.</p>
+              )}
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 export function buildCustomStudioRendererRegistry({
   activeStudioView,
   apiBase,
@@ -395,6 +710,7 @@ export function buildCustomStudioRendererRegistry({
   dicomAnalysis,
   spreadsheetAnalysis,
   imageAnalysis,
+  fhirAnalysis,
   candidateVariants,
   searchedAnnotations,
   setSelectedAnnotationIndex,
@@ -433,6 +749,10 @@ export function buildCustomStudioRendererRegistry({
     image_review: () =>
       imageAnalysis ? (
         <ImageReviewCard analysis={imageAnalysis} components={components} />
+      ) : null,
+    fhir_browser: () =>
+      fhirAnalysis ? (
+        <FhirBrowserCard analysis={fhirAnalysis} />
       ) : null,
     cohort_browser: () =>
       spreadsheetAnalysis ? (
