@@ -25,13 +25,6 @@ The architecture target is:
 4. Studio cards render the tool outputs.
 5. Chat explains the grounded outputs, not raw VCF rows.
 
-Workflow registry drafts for future `@skill process_name` execution live under:
-
-- `skills/chatgenome-orchestrator/workflows/representative_vcf_review.json`
-- `skills/chatgenome-orchestrator/workflows/raw_qc_review.json`
-- `skills/chatgenome-orchestrator/workflows/summary_stats_review.json`
-- `skills/chatgenome-orchestrator/workflows/prs_prep.json`
-
 ## Initial tool ordering
 
 For the current migration stage, the preferred initial order is:
