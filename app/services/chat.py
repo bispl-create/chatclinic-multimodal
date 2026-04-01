@@ -1677,9 +1677,11 @@ def answer_multimodal_chat(payload: MultimodalChatRequest) -> MultimodalChatResp
     # For grounded/general chat, merge all source contexts into one prompt
     try:
         return _call_openai_multimodal(payload)
-    except Exception:
+    except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
         return MultimodalChatResponse(
-            answer=_fallback_chat_answer(primary or "vcf", payload.question).answer,
+            answer=f"Multimodal chat error: {exc}\n\n```\n{tb}\n```",
             citations=[],
             used_fallback=True,
         )
@@ -1764,35 +1766,35 @@ def _call_openai_multimodal(payload: MultimodalChatRequest) -> MultimodalChatRes
     grounded = _has_studio_trigger(payload.question)
     context_sections: list[str] = []
 
-    # Gather compacted contexts from each active source
-    source_configs: list[tuple[str, Any]] = [
-        ("vcf", payload.vcf_analysis),
-        ("raw_qc", payload.raw_qc_analysis),
-        ("summary_stats", payload.summary_stats_analysis),
-        ("text", payload.text_analysis),
-        ("spreadsheet", payload.spreadsheet_analysis),
-        ("dicom", payload.dicom_analysis),
-    ]
+    # Build real Pydantic request objects for each active source so that
+    # the compact context builders can access typed attributes correctly.
+    _REQUEST_CLS: dict[str, tuple[type, Any]] = {
+        "vcf": (AnalysisChatRequest, payload.vcf_analysis),
+        "raw_qc": (RawQcChatRequest, payload.raw_qc_analysis),
+        "summary_stats": (SummaryStatsChatRequest, payload.summary_stats_analysis),
+        "text": (TextChatRequest, payload.text_analysis),
+        "spreadsheet": (SpreadsheetChatRequest, payload.spreadsheet_analysis),
+        "dicom": (DicomChatRequest, payload.dicom_analysis),
+    }
 
-    for source_type, analysis_obj in source_configs:
+    for source_type, (req_cls, analysis_obj) in _REQUEST_CLS.items():
         if analysis_obj is None:
             continue
         config = CHAT_OPENAI_CONFIG.get(source_type)
         if not config:
             continue
-        # Build a lightweight single-source payload to reuse the compact builder
-        single = type("_P", (), {
-            "question": payload.question,
-            "analysis": analysis_obj,
-            "history": payload.history,
-            "studio_context": payload.studio_context,
-        })()
         try:
+            single = req_cls(
+                question=payload.question,
+                analysis=analysis_obj,
+                history=payload.history,
+                studio_context=payload.studio_context,
+            )
             compact = config["compact_context_builder"](single)
             label = config["context_label"]
             context_sections.append(f"{label} ({source_type}):\n{json.dumps(compact, ensure_ascii=False)}")
-        except Exception:
-            pass
+        except Exception as e:
+            context_sections.append(f"[{source_type} context build failed: {e}]")
 
     if grounded and context_sections:
         system_prompt = (
