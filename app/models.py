@@ -578,6 +578,7 @@ class MultimodalChatRequest(BaseChatRequest):
     spreadsheet_analysis: Optional[SpreadsheetSourceResponse] = None
     dicom_analysis: Optional[DicomSourceResponse] = None
     image_analysis: Optional[ImageSourceResponse] = None
+    nifti_analysis: Optional[NiftiSourceResponse] = None
     fhir_analysis: Optional[FhirSourceResponse] = None
     primary_source_type: Optional[str] = None
 

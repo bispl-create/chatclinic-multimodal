@@ -1984,6 +1984,12 @@ export default function Page() {
     if (normalized === "plink") {
       return wantsPlinkScore ? "Running PLINK score..." : "Running PLINK...";
     }
+    if (normalized === "vcfinterpret" || normalized === "vcfinterpretation" || normalized === "vcf_interpret" || normalized === "vcf_interpretation") {
+      return "Running VCF interpretation...";
+    }
+    if (normalized === "vcfreview" || normalized === "vcf_review") {
+      return "Running VCF review...";
+    }
     return "Running tool...";
   }
 
@@ -2011,6 +2017,12 @@ export default function Page() {
     if (normalized === "plink") {
       return wantsPlinkScore ? "PLINK score ready" : "PLINK ready";
     }
+    if (normalized === "vcfinterpret" || normalized === "vcfinterpretation" || normalized === "vcf_interpret" || normalized === "vcf_interpretation") {
+      return "VCF interpretation ready";
+    }
+    if (normalized === "vcfreview" || normalized === "vcf_review") {
+      return "VCF review ready";
+    }
     return "Tool ready";
   }
 
@@ -2037,6 +2049,12 @@ export default function Page() {
     }
     if (normalized === "plink") {
       return wantsPlinkScore ? "PLINK score failed" : "PLINK failed";
+    }
+    if (normalized === "vcfinterpret" || normalized === "vcfinterpretation" || normalized === "vcf_interpret" || normalized === "vcf_interpretation") {
+      return "VCF interpretation failed";
+    }
+    if (normalized === "vcfreview" || normalized === "vcf_review") {
+      return "VCF review failed";
     }
     return "Tool failed";
   }
@@ -3962,6 +3980,9 @@ export default function Page() {
     status === "Running LDBlockShow..." ||
     status === "Running PLINK..." ||
     status === "Running PLINK score..." ||
+    status === "Running VCF interpretation..." ||
+    status === "Running VCF review..." ||
+    status === "Running tool..." ||
     status === "Raw QC failed" ||
     status === "Summary stats failed" ||
     status === "Spreadsheet review failed" ||
@@ -3975,13 +3996,19 @@ export default function Page() {
     status === "LDBlockShow failed" ||
     status === "PLINK failed" ||
     status === "PLINK score failed" ||
+    status === "VCF interpretation failed" ||
+    status === "VCF review failed" ||
+    status === "Tool failed" ||
     status === "Liftover ready" ||
     status === "qqman ready" ||
     status === "samtools ready" ||
     status === "SnpEff ready" ||
     status === "LDBlockShow ready" ||
     status === "PLINK ready" ||
-    status === "PLINK score ready"
+    status === "PLINK score ready" ||
+    status === "VCF interpretation ready" ||
+    status === "VCF review ready" ||
+    status === "Tool ready"
       ? status
       : analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || niftiAnalysis || fhirAnalysis
         ? analysis

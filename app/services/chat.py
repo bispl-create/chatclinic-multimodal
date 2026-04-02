@@ -1889,6 +1889,11 @@ def _multimodal_to_single(
             question=payload.question, analysis=payload.image_analysis,
             history=payload.history, studio_context=payload.studio_context,
         )
+    if payload.nifti_analysis:
+        sources["nifti"] = NiftiChatRequest(
+            question=payload.question, analysis=payload.nifti_analysis,
+            history=payload.history, studio_context=payload.studio_context,
+        )
     if payload.fhir_analysis:
         sources["fhir"] = FhirChatRequest(
             question=payload.question, analysis=payload.fhir_analysis,
@@ -1947,6 +1952,7 @@ def _call_openai_multimodal(payload: MultimodalChatRequest) -> MultimodalChatRes
         "spreadsheet": (SpreadsheetChatRequest, payload.spreadsheet_analysis),
         "dicom": (DicomChatRequest, payload.dicom_analysis),
         "image": (ImageChatRequest, payload.image_analysis),
+        "nifti": (NiftiChatRequest, payload.nifti_analysis),
         "fhir": (FhirChatRequest, payload.fhir_analysis),
     }
 
