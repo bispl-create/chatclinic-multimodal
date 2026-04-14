@@ -1981,6 +1981,9 @@ export default function Page() {
     if (normalized === "ldblockshow") {
       return "Running LDBlockShow...";
     }
+    if (normalized === "unsb") {
+      return "Running UNSB...";
+    }
     if (normalized === "plink") {
       return wantsPlinkScore ? "Running PLINK score..." : "Running PLINK...";
     }
@@ -2014,6 +2017,9 @@ export default function Page() {
     if (normalized === "ldblockshow") {
       return "LDBlockShow ready";
     }
+    if (normalized === "unsb") {
+      return "UNSB ready";
+    }
     if (normalized === "plink") {
       return wantsPlinkScore ? "PLINK score ready" : "PLINK ready";
     }
@@ -2046,6 +2052,9 @@ export default function Page() {
     }
     if (normalized === "ldblockshow") {
       return "LDBlockShow failed";
+    }
+    if (normalized === "unsb") {
+      return "UNSB failed";
     }
     if (normalized === "plink") {
       return wantsPlinkScore ? "PLINK score failed" : "PLINK failed";
@@ -2451,9 +2460,42 @@ export default function Page() {
       return;
     }
 
-    // No frontend handler matched — if an analysis is loaded, let the backend chat handler try
-    if (analysis) {
-      await handleAskAnalysisQuestion(`@${alias}${remainder ? " " + remainder : ""}`, analysis);
+    // No frontend handler matched — fall back to the source-specific chat endpoint.
+    const toolCommand = `@${alias}${remainder ? " " + remainder : ""}`;
+    if (preAnalysisSource.source_type === "vcf" && analysis) {
+      await handleAskAnalysisQuestion(toolCommand, analysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "raw_qc" && rawQcAnalysis) {
+      await handleAskRawQcQuestion(toolCommand, rawQcAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "summary_stats" && summaryStatsAnalysis) {
+      await handleAskSummaryStatsQuestion(toolCommand, summaryStatsAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "text" && textAnalysis) {
+      await handleAskTextQuestion(toolCommand, textAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "spreadsheet" && spreadsheetAnalysis) {
+      await handleAskSpreadsheetQuestion(toolCommand, spreadsheetAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "dicom" && dicomAnalysis) {
+      await handleAskDicomQuestion(toolCommand, dicomAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "image" && imageAnalysis) {
+      await handleAskImageQuestion(toolCommand, imageAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "nifti" && niftiAnalysis) {
+      await handleAskNiftiQuestion(toolCommand, niftiAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "fhir" && fhirAnalysis) {
+      await handleAskFhirQuestion(toolCommand, fhirAnalysis);
       return;
     }
     addMessage({
@@ -4826,6 +4868,7 @@ export default function Page() {
         bit_depth: imageAnalysis.bit_depth,
         exif_data: imageAnalysis.exif_data,
         metadata_items: imageAnalysis.metadata_items,
+        unsb_enhancement: imageAnalysis.artifacts?.unsb_enhancement ?? null,
       };
     }
 
