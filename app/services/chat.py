@@ -53,24 +53,11 @@ from app.models import (
 from app.services.tool_runner import (
     load_tool_manifests,
     manifest_for_alias,
+    run_tool,
     tool_aliases,
     tool_chat_metadata,
     tool_direct_chat_metadata,
 )
-from plugins.gatk_liftover_vcf_tool.logic import (
-    DEFAULT_CHAIN_FILE,
-    DEFAULT_TARGET_FASTA,
-    run_gatk_liftover_vcf,
-)
-from plugins.ldblockshow_execution_tool.logic import run_ldblockshow
-from plugins.plink_execution_tool.logic import run_plink
-from plugins.qqman_execution_tool.logic import run_qqman_association
-from plugins.samtools_execution_tool.logic import run_samtools
-from plugins.snpeff_execution_tool.logic import run_snpeff
-from plugins.vcf_interpretation_tool.logic import execute as run_vcf_interpretation
-from plugins.vcf_qc_tool.logic import summarize_vcf
-from plugins.vcf_review_tool.logic import execute as run_vcf_review
-
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "45"))
 
 
@@ -125,6 +112,12 @@ def _render_tool_help(manifest: dict[str, object]) -> str:
             input_hint = "active BAM/SAM/CRAM source"
         elif "summary_stats" in source_types:
             input_hint = "active summary-statistics source"
+        elif "image" in source_types:
+            input_hint = "active image source"
+        elif "dicom" in source_types:
+            input_hint = "active DICOM source"
+        elif "nifti" in source_types:
+            input_hint = "active NIfTI source"
     else:
         orchestration = manifest.get("orchestration") if isinstance(manifest.get("orchestration"), dict) else {}
         consumes = orchestration.get("consumes") if isinstance(orchestration, dict) else []
@@ -224,6 +217,12 @@ def _describe_source_type(source_type: str) -> str:
         return "spreadsheet session"
     if normalized == "dicom":
         return "DICOM imaging session"
+    if normalized == "image":
+        return "image session"
+    if normalized == "nifti":
+        return "NIfTI session"
+    if normalized == "fhir":
+        return "FHIR session"
     return "current session"
 
 
@@ -241,6 +240,12 @@ def _tool_input_hint(source_type: str) -> str:
         return "active spreadsheet source"
     if normalized == "dicom":
         return "active DICOM source"
+    if normalized == "image":
+        return "active image source"
+    if normalized == "nifti":
+        return "active NIfTI source"
+    if normalized == "fhir":
+        return "active FHIR source"
     return "active source"
 
 
@@ -308,7 +313,7 @@ def _basic_source_response(
     answer: str,
     *,
     used_fallback: bool = False,
-) -> AnalysisChatResponse | DicomChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse:
+) -> AnalysisChatResponse | DicomChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse | ImageChatResponse | NiftiChatResponse | FhirChatResponse:
     response_cls = _source_response_class(source_type)
     return response_cls(source_type=source_type, answer=answer, citations=[], used_fallback=used_fallback)
 
@@ -422,6 +427,34 @@ def _text_tool_response(
             answer=answer,
             citations=citations or [],
             used_fallback=used_fallback,
+            requested_view=requested_view,
+            studio=studio,
+            analysis=analysis,
+        )
+    )
+
+
+def _image_tool_response(
+    answer: str,
+    *,
+    result_kind: str | None = None,
+    result: object = None,
+    citations: list[str] | None = None,
+    used_fallback: bool = False,
+    used_tools: list[str] | None = None,
+    requested_view: str | None = None,
+    studio: dict[str, Any] | None = None,
+    analysis: object = None,
+) -> ImageChatResponse:
+    return ImageChatResponse(
+        **_with_result_field(
+            result_kind,
+            result,
+            source_type="image",
+            answer=answer,
+            citations=citations or [],
+            used_fallback=used_fallback,
+            used_tools=used_tools or [],
             requested_view=requested_view,
             studio=studio,
             analysis=analysis,
@@ -813,6 +846,19 @@ def _compact_image_context(payload: ImageChatRequest) -> dict[str, object]:
     for key in ("Make", "Model", "DateTime", "Software", "ImageWidth", "ImageLength", "GPS"):
         if key in payload.analysis.exif_data:
             exif_summary[key] = payload.analysis.exif_data[key]
+    unsb_summary = None
+    if isinstance(payload.analysis.artifacts, dict):
+        artifact = payload.analysis.artifacts.get("unsb_enhancement")
+        if isinstance(artifact, dict):
+            unsb_summary = {
+                "output_image_path": artifact.get("output_image_path"),
+                "epoch": artifact.get("epoch"),
+                "device": artifact.get("device"),
+                "num_timesteps": artifact.get("num_timesteps"),
+                "tau": artifact.get("tau"),
+                "crop_size": artifact.get("crop_size"),
+                "deterministic": artifact.get("deterministic"),
+            }
     context: dict[str, object] = {
         "analysis_id": payload.analysis.analysis_id,
         "file_name": payload.analysis.file_name,
@@ -827,6 +873,8 @@ def _compact_image_context(payload: ImageChatRequest) -> dict[str, object]:
         "draft_answer": payload.analysis.draft_answer,
         "used_tools": payload.analysis.used_tools,
     }
+    if unsb_summary is not None:
+        context["unsb_enhancement"] = unsb_summary
     if payload.studio_context:
         context["studio_context"] = _flatten_studio_context(payload.studio_context)
     return context
@@ -1205,6 +1253,12 @@ def _execute_analysis_direct_liftover(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> AnalysisChatResponse:
+    from plugins.gatk_liftover_vcf_tool.logic import (
+        DEFAULT_CHAIN_FILE,
+        DEFAULT_TARGET_FASTA,
+        run_gatk_liftover_vcf,
+    )
+
     source_vcf_path = payload.analysis.source_vcf_path
     result_kind = str(direct_chat.get("result_kind") or "liftover_result")
     if not source_vcf_path:
@@ -1271,6 +1325,8 @@ def _execute_raw_qc_direct_samtools(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> RawQcChatResponse:
+    from plugins.samtools_execution_tool.logic import run_samtools
+
     del tool_request, options
     alignment_kind = (payload.analysis.facts.file_kind or "").upper()
     if alignment_kind not in {"BAM", "SAM", "CRAM", "ALIGNMENT"}:
@@ -1323,6 +1379,8 @@ def _execute_summary_stats_direct_qqman(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> SummaryStatsChatResponse:
+    from plugins.qqman_execution_tool.logic import run_qqman_association
+
     del tool_request
     source_stats_path = payload.analysis.source_stats_path
     if not source_stats_path:
@@ -1355,6 +1413,8 @@ def _execute_analysis_direct_snpeff(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> AnalysisChatResponse:
+    from plugins.snpeff_execution_tool.logic import run_snpeff
+
     del tool_request
     source_vcf_path = payload.analysis.source_vcf_path
     if not source_vcf_path:
@@ -1407,6 +1467,8 @@ def _execute_analysis_direct_ldblockshow(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> AnalysisChatResponse:
+    from plugins.ldblockshow_execution_tool.logic import run_ldblockshow
+
     source_vcf_path = payload.analysis.source_vcf_path
     region = options.get("region") or _extract_ldblockshow_region(str(tool_request.get("remainder") or payload.question))
 
@@ -1538,6 +1600,8 @@ def _execute_analysis_direct_vcf_interpretation(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> AnalysisChatResponse:
+    from plugins.vcf_interpretation_tool.logic import execute as run_vcf_interpretation
+
     del tool_request, options
     source_vcf_path = payload.analysis.source_vcf_path
     if not source_vcf_path:
@@ -1588,6 +1652,8 @@ def _execute_analysis_direct_vcf_qc(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> AnalysisChatResponse:
+    from plugins.vcf_qc_tool.logic import summarize_vcf
+
     del tool_request, options
     source_vcf_path = payload.analysis.source_vcf_path
     if not source_vcf_path:
@@ -1624,6 +1690,8 @@ def _execute_analysis_direct_vcf_review(
     direct_chat: dict[str, Any],
     options: dict[str, str],
 ) -> AnalysisChatResponse:
+    from plugins.vcf_review_tool.logic import execute as run_vcf_review
+
     del tool_request, options
     from app.models import CountSummaryItem, DetailedCountSummaryItem, SymbolicAltSummary
     result = run_vcf_review({
@@ -1667,6 +1735,48 @@ def _execute_analysis_direct_vcf_review(
     )
 
 
+def _execute_image_direct_unsb(
+    payload: ImageChatRequest,
+    tool_request: dict[str, object],
+    direct_chat: dict[str, Any],
+    options: dict[str, str],
+) -> ImageChatResponse:
+    del tool_request
+    source_image_path = payload.analysis.source_image_path
+    if not source_image_path:
+        return _image_tool_response(
+            "The active image session does not include a durable image path, so `@unsb` cannot run yet.",
+            used_fallback=True,
+            used_tools=["unsb_tool"],
+        )
+
+    request_payload: dict[str, object] = {
+        "image_path": source_image_path,
+        "file_name": payload.analysis.file_name,
+        "analysis": payload.analysis.model_dump(),
+    }
+    for key in ("ckpt_dir", "epoch", "num_timesteps", "tau", "crop_size", "deterministic", "gpu", "save_channel", "output_prefix"):
+        value = options.get(key)
+        if value not in (None, ""):
+            request_payload[key] = value
+
+    result = run_tool("unsb_tool", request_payload)
+    analysis_payload = result.get("analysis")
+    if not isinstance(analysis_payload, dict):
+        raise RuntimeError("UNSB tool did not return an updated image analysis payload.")
+
+    updated_analysis = ImageSourceResponse(**analysis_payload)
+    answer = str(result.get("summary") or updated_analysis.draft_answer or "UNSB enhancement is ready.")
+    return _image_tool_response(
+        answer,
+        used_tools=["unsb_tool"],
+        result_kind=str(direct_chat.get("result_kind") or "image_analysis"),
+        requested_view=str(direct_chat.get("requested_view") or "image_review"),
+        studio=direct_chat.get("studio") if isinstance(direct_chat.get("studio"), dict) else {"renderer": "image_review"},
+        analysis=updated_analysis,
+    )
+
+
 DIRECT_TOOL_ENDPOINT_EXECUTORS: dict[str, dict[str, Any]] = {
     "vcf": {
         "liftover": _execute_analysis_direct_liftover,
@@ -1685,14 +1795,20 @@ DIRECT_TOOL_ENDPOINT_EXECUTORS: dict[str, dict[str, Any]] = {
     },
     "text": {},
     "spreadsheet": {},
+    "image": {
+        "unsb": _execute_image_direct_unsb,
+    },
+    "dicom": {},
+    "nifti": {},
+    "fhir": {},
 }
 
 
 def _run_direct_tool_for_source(
     source_type: str,
-    payload: AnalysisChatRequest | RawQcChatRequest | SpreadsheetChatRequest | SummaryStatsChatRequest | TextChatRequest,
+    payload: AnalysisChatRequest | RawQcChatRequest | SpreadsheetChatRequest | SummaryStatsChatRequest | TextChatRequest | ImageChatRequest,
     tool_request: dict[str, object],
-) -> AnalysisChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse | None:
+) -> AnalysisChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse | ImageChatResponse | None:
     direct_chat = _tool_request_direct_chat_metadata(tool_request)
     endpoint = str(direct_chat.get("endpoint") or "").strip().lower()
     executor = DIRECT_TOOL_ENDPOINT_EXECUTORS.get(source_type, {}).get(endpoint)
@@ -1707,9 +1823,9 @@ def _run_direct_tool_for_source(
 
 def _handle_at_tool_request_for_source(
     source_type: str,
-    payload: AnalysisChatRequest | RawQcChatRequest | SpreadsheetChatRequest | SummaryStatsChatRequest | TextChatRequest,
+    payload: AnalysisChatRequest | RawQcChatRequest | SpreadsheetChatRequest | SummaryStatsChatRequest | TextChatRequest | ImageChatRequest,
     tool_request: dict[str, object],
-) -> AnalysisChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse:
+) -> AnalysisChatResponse | RawQcChatResponse | SpreadsheetChatResponse | SummaryStatsChatResponse | TextChatResponse | ImageChatResponse:
     manifest = tool_request.get("manifest")
     help_text = _resolve_tool_help_response(tool_request)
     if help_text is not None:

@@ -1,0 +1,116 @@
+{
+  "name": "unsb_tool",
+  "entrypoint": "plugins.unsb_tool.logic:execute",
+  "description": "Run local UNSB MRI enhancement on the active image source and attach the enhanced preview to the Image Review card.",
+  "task": "mri-enhancement",
+  "modality": "imaging",
+  "approval_required": false,
+  "source": "local",
+  "routing": {
+    "trigger_keywords": [
+      "unsb",
+      "mri enhancement",
+      "image enhancement",
+      "ultra low field"
+    ],
+    "execution_intents": [
+      "run",
+      "execute",
+      "enhance",
+      "improve",
+      "실행",
+      "향상",
+      "개선",
+      "돌려"
+    ],
+    "requires_source_vcf": false,
+    "question_argument": "none",
+    "result_slot": "image_analysis",
+    "execution_mode": "direct_endpoint"
+  },
+  "direct_chat": {
+    "source_type": "image",
+    "source_types": [
+      "image"
+    ],
+    "endpoint": "unsb",
+    "argument_mode": "key_value",
+    "requested_view": "image_review",
+    "studio": {
+      "renderer": "image_review"
+    },
+    "result_kind": "image_analysis"
+  },
+  "help": {
+    "summary": "Run UNSB enhancement on the active image source and add the enhanced output to the Image Review Studio card.",
+    "modes": [
+      {
+        "name": "run",
+        "description": "Enhance the active image with the local UNSB checkpoint."
+      }
+    ],
+    "options": [
+      {
+        "name": "epoch",
+        "type": "string",
+        "required": false,
+        "default": "iter_65000",
+        "description": "Checkpoint prefix to load from the UNSB checkpoint directory."
+      },
+      {
+        "name": "num_timesteps",
+        "type": "integer",
+        "required": false,
+        "default": 5,
+        "description": "Number of UNSB inference steps."
+      },
+      {
+        "name": "tau",
+        "type": "float",
+        "required": false,
+        "default": 0.01,
+        "description": "Noise parameter used during the SDE inference loop."
+      },
+      {
+        "name": "crop_size",
+        "type": "integer",
+        "required": false,
+        "default": 256,
+        "description": "Resize and center-crop size used before enhancement."
+      },
+      {
+        "name": "gpu",
+        "type": "integer",
+        "required": false,
+        "default": 0,
+        "description": "GPU id to use. Set to -1 for CPU."
+      },
+      {
+        "name": "deterministic",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Disable stochastic noise for reproducible output."
+      },
+      {
+        "name": "save_channel",
+        "type": "integer",
+        "required": false,
+        "description": "Optional output channel index to save as grayscale."
+      }
+    ],
+    "examples": [
+      "@unsb",
+      "@unsb help",
+      "@unsb num_timesteps=5 tau=0.01",
+      "@unsb deterministic=true save_channel=1"
+    ],
+    "notes": [
+      "Uses the active image source by default.",
+      "The enhanced preview is attached to the existing Image Review card."
+    ]
+  },
+  "source_types": [
+    "image"
+  ]
+}

@@ -20,6 +20,7 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 
 **PNG / JPG / TIFF Image**
 - Auto: Image Review (metadata, EXIF, thumbnail)
+- `@unsb [num_timesteps=5 tau=0.01]` — Run local UNSB enhancement on the active image source
 
 **NIfTI Volume (.nii, .nii.gz)**
 - Auto: NIfTI Review (shape, voxel dimensions, orientation, 3D viewer via Niivue)
@@ -163,6 +164,7 @@ The chat layer should separate general conversation from grounded Studio interpr
 - Prefer `@toolname` as the explicit execution trigger for tool calls.
 - Prefer `@toolname help` when the user wants to understand tool options before execution.
 - `@toolname` should use the current active source by default.
+- `@unsb` should use the active image source and attach the enhanced preview to the Image Review card.
 - Tool recommendation policy belongs in skill; actual tool invocation belongs in backend/runtime.
 - Do not execute a tool just because a user asked a conceptual question about the tool domain.
 - For the current migration stage:

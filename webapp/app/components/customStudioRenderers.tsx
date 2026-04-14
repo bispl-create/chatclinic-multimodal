@@ -326,6 +326,8 @@ function ImageReviewCard({
 }) {
   const { StudioMetricGrid, WarningListCard } = components;
   const exifEntries = Object.entries(analysis?.exif_data ?? {});
+  const unsbArtifact = analysis?.artifacts?.unsb_enhancement ?? null;
+  const unsbPreview = typeof unsbArtifact?.preview_data_url === "string" ? unsbArtifact.preview_data_url : null;
 
   return (
     <section className="notebookPanel studioCanvasPanel">
@@ -341,12 +343,13 @@ function ImageReviewCard({
             { label: "Color mode", value: String(analysis?.color_mode ?? "n/a"), tone: "neutral" },
             { label: "Bit depth", value: analysis?.bit_depth != null ? String(analysis.bit_depth) : "n/a", tone: "neutral" },
             { label: "File kind", value: String(analysis?.file_kind ?? "IMAGE"), tone: "neutral" },
+            { label: "UNSB", value: unsbArtifact ? "Ready" : "Not run", tone: unsbArtifact ? "good" : "neutral" },
           ]}
         />
         <div className="resultSectionSplit" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", alignItems: "start" }}>
           {analysis?.preview_data_url ? (
             <article className="miniCard">
-              <h3>Thumbnail</h3>
+              <h3>Original</h3>
               <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
                 <img
                   src={analysis.preview_data_url}
@@ -356,6 +359,25 @@ function ImageReviewCard({
               </div>
             </article>
           ) : null}
+          {unsbPreview ? (
+            <article className="miniCard">
+              <h3>UNSB Enhanced</h3>
+              <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
+                <img
+                  src={unsbPreview}
+                  alt={`${analysis?.file_name ?? "image"} enhanced`}
+                  style={{ maxWidth: "100%", maxHeight: "400px", borderRadius: "6px", border: "1px solid var(--border-color, #ddd)" }}
+                />
+              </div>
+            </article>
+          ) : (
+            <article className="miniCard">
+              <h3>UNSB Enhanced</h3>
+              <p className="emptyState">Run <code>@unsb</code> to attach an enhanced preview.</p>
+            </article>
+          )}
+        </div>
+        <div className="resultSectionSplit" style={{ gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 0.8fr)", alignItems: "start" }}>
           <article className="miniCard" style={{ maxWidth: "100%", overflow: "hidden" }}>
             <h3>{exifEntries.length ? "EXIF data" : "Metadata"}</h3>
             <div className="variantTableWrap summaryStatsTableWrap">
@@ -368,6 +390,21 @@ function ImageReviewCard({
                   {exifEntries.slice(0, 12).map(([key, value]) => (
                     <tr key={key}><th>{key}</th><td>{String(value ?? "")}</td></tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <article className="miniCard" style={{ maxWidth: "100%", overflow: "hidden" }}>
+            <h3>UNSB Run</h3>
+            <div className="variantTableWrap summaryStatsTableWrap">
+              <table className="variantTable summaryStatsTable">
+                <tbody>
+                  <tr><th>Status</th><td>{unsbArtifact ? "Ready" : "Not run"}</td></tr>
+                  <tr><th>Device</th><td>{String(unsbArtifact?.device ?? "n/a")}</td></tr>
+                  <tr><th>Checkpoint</th><td>{String(unsbArtifact?.epoch ?? "n/a")}</td></tr>
+                  <tr><th>Steps</th><td>{String(unsbArtifact?.num_timesteps ?? "n/a")}</td></tr>
+                  <tr><th>Tau</th><td>{String(unsbArtifact?.tau ?? "n/a")}</td></tr>
+                  <tr><th>Output</th><td>{String(unsbArtifact?.output_image_path ?? "n/a")}</td></tr>
                 </tbody>
               </table>
             </div>
