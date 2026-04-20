@@ -112,10 +112,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "studio_preview_kind": "markdown",
         "initial_tools": ["text_review_tool"],
         "capabilities": ["source_upload", "bootstrap_analysis", "grounded_chat"],
-        "suffixes": [".markdown", ".md", ".text", ".note", ".log"],
+        "suffixes": [".markdown", ".md", ".txt", ".text", ".note", ".log"],
         "file_kind_map": {
-            ".markdown": "TEXT", ".md": "TEXT", ".text": "TEXT",
-            ".note": "TEXT", ".log": "TEXT",
+            ".markdown": "TEXT", ".md": "TEXT", ".txt": "TEXT",
+            ".text": "TEXT", ".note": "TEXT", ".log": "TEXT",
         },
     },
     "raw_qc": {

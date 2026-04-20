@@ -2451,6 +2451,37 @@ export default function Page() {
       return;
     }
 
+    // Generic registered-tool fallback for text sources (e.g. dementia_prediction_tool).
+    // Forwards the uploaded clinical note path to the backend's generic tool runner and
+    // surfaces the tool's summary as an assistant message.
+    if (preAnalysisSource?.source_type === "text" && preAnalysisSource.source_path) {
+      const toolPayload: Record<string, unknown> = {
+        ...options,
+        text_path: preAnalysisSource.source_path,
+        file_name: preAnalysisSource.file_name,
+      };
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/${alias}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payload: toolPayload }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const toolResult = await response.json();
+      const resultData = toolResult.result ?? {};
+      const summary =
+        resultData.dementia_prediction?.summary ??
+        resultData.summary ??
+        JSON.stringify(resultData).slice(0, 500);
+      setStatus(toolReadyStatus(alias, remainder));
+      addMessage({
+        role: "assistant",
+        content: typeof summary === "string" ? summary : `\`@${alias}\` completed successfully.`,
+      });
+      return;
+    }
+
     // No frontend handler matched — if an analysis is loaded, let the backend chat handler try
     if (analysis) {
       await handleAskAnalysisQuestion(`@${alias}${remainder ? " " + remainder : ""}`, analysis);

@@ -1,0 +1,54 @@
+{
+  "name": "dementia_prediction_tool",
+  "entrypoint": "plugins.dementia_prediction_tool.logic:execute",
+  "description": "Predict dementia likelihood from longitudinal clinical notes using a fine-tuned Qwen2 (Dementia-R1) model. Connects to a remote GPU server for inference.",
+  "task": "dementia-prediction",
+  "modality": "text",
+  "approval_required": true,
+  "source": "plugin",
+  "source_types": ["text"],
+  "routing": {
+    "trigger_keywords": [
+      "dementia", "cognitive decline", "MMSE", "GDS", "CDR",
+      "alzheimer", "neurodegeneration", "prediction",
+      "\uce58\ub9e4", "\uc778\uc9c0\uc800\ud558", "\uc54c\uce20\ud558\uc774\uba38", "\uacbd\ub3c4\uc778\uc9c0\uc7a5\uc560"
+    ],
+    "execution_intents": ["predict", "run", "execute", "analyze", "\uc608\uce21", "\uc2e4\ud589"],
+    "requires_source_vcf": false,
+    "question_argument": "none",
+    "result_slot": "dementia_prediction",
+    "execution_mode": "direct_endpoint"
+  },
+  "orchestration": {
+    "tool_kind": "inference",
+    "default_stage": "on-demand",
+    "depends_on": [],
+    "consumes": ["text_source"],
+    "produces": ["dementia_prediction"],
+    "priority": 90,
+    "on_demand": true
+  },
+  "runtime": {
+    "host_compatible": ["cpu"],
+    "requires_gpu": false,
+    "allow_cpu_fallback": true,
+    "estimated_runtime_sec": 10,
+    "notes": "Runs on CPU locally \u2014 sends requests to a remote GPU server for model inference via the DEMENTIA_API_URL environment variable (default http://127.0.0.1:8020)."
+  },
+  "direct_chat": {
+    "source_type": "text",
+    "endpoint": "dementia_prediction",
+    "argument_mode": "none",
+    "requested_view": "text",
+    "studio": { "renderer": "dementia_prediction" },
+    "result_kind": "dementia_prediction"
+  },
+  "help": {
+    "summary": "Predict dementia likelihood from uploaded clinical notes using the Dementia-R1 model.",
+    "examples": ["@dementia_prediction"],
+    "notes": [
+      "Requires a running Dementia-R1 inference API reachable at DEMENTIA_API_URL (default http://127.0.0.1:8020). Use an SSH tunnel if the GPU server is remote.",
+      "Upload a .txt or .md clinical note first, then run @dementia_prediction in Chat."
+    ]
+  }
+}
