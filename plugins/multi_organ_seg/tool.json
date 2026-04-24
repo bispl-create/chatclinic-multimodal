@@ -1,0 +1,42 @@
+{
+  "name": "multi_organ_seg",
+  "team": "segmentation_team",
+  "description": "AMOS CT multi-organ segmentation using a MaskSAM-trained nnU-Net v2 model (Dataset052_AMOS22_OnlyCT, 3d_fullres, fold 2, 16 classes). Accepts a 3D CT NIfTI volume and returns per-organ masks.",
+  "entrypoint": "plugins.multi_organ_seg.logic:execute",
+  "task": "image_segmentation",
+  "task_type": "segmentation-task",
+  "recommended_stage": "on-demand",
+  "modality": "image",
+  "approval_required": true,
+  "source": "plugin",
+  "aliases": ["seg_organ"],
+  "source_types": ["nifti"],
+  "orchestration": {
+    "consumes": ["nifti_file"],
+    "produces": ["segmentation_result"],
+    "priority": 80
+  },
+  "routing": {
+    "trigger_keywords": ["seg_organ", "seg-organ", "amos", "multi-organ", "nnunet", "masksam", "abdominal ct", "organ segmentation"],
+    "result_slot": "segmentation_result"
+  },
+  "help": {
+    "summary": "AMOS CT multi-organ segmentation (16 classes) using MaskSAM-trained nnU-Net v2.",
+    "modes": [],
+    "options": [],
+    "examples": [
+      "@seg_organ help",
+      "@seg_organ"
+    ],
+    "notes": ["Requires a 3D abdominal CT NIfTI volume."]
+  },
+  "runtime": {
+    "host_compatible": ["gpu"],
+    "supported_accelerators": ["gpu"],
+    "preferred_accelerator": "gpu",
+    "requires_gpu": true,
+    "allow_cpu_fallback": false,
+    "estimated_runtime_sec": 150,
+    "notes": "Requires GPU for nnU-Net v2 + MaskSAM sliding-window inference."
+  }
+}

@@ -1,0 +1,16 @@
+name: spleen_seg
+display_name: "Spleen CT Segmentation"
+framework: monai_bundle
+bundle_name: spleen_ct_segmentation
+architecture: UNet
+input_type: 3d_ct
+input_channels: 1
+num_classes: 2
+output_format: nifti
+targets:
+  - Background
+  - Spleen
+dataset_task: Task09_Spleen
+roi_size: [96, 96, 96]
+sw_batch_size: 4
+overlap: 0.5

@@ -1,0 +1,24 @@
+name: lung_seg
+display_name: "CXR Lung Segmentation"
+framework: torchxrayvision
+model_class: PSPNet
+input_type: 2d_image
+input_size: 512
+num_classes: 14
+output_format: png
+targets:
+  - Left Clavicle
+  - Right Clavicle
+  - Left Scapula
+  - Right Scapula
+  - Left Lung
+  - Right Lung
+  - Left Hilus Pulmonis
+  - Right Hilus Pulmonis
+  - Heart
+  - Aorta
+  - Facies Diaphragmatica
+  - Mediastinum
+  - Weasand
+  - Spine
+lung_indices: [4, 5]
