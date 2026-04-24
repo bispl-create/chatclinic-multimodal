@@ -1,0 +1,42 @@
+{
+  "name": "pancreas_tumor_seg",
+  "team": "segmentation_team",
+  "description": "Pancreas + tumor CT segmentation using MONAI's DiNTS (pancreas_ct_dints_segmentation bundle, NAS-discovered architecture). Accepts a 3D abdominal CT NIfTI and returns a 3-class mask (background / pancreas / tumor).",
+  "entrypoint": "plugins.pancreas_tumor_seg.logic:execute",
+  "task": "image_segmentation",
+  "task_type": "segmentation-task",
+  "recommended_stage": "on-demand",
+  "modality": "image",
+  "approval_required": true,
+  "source": "plugin",
+  "aliases": ["seg_pancreas"],
+  "source_types": ["nifti"],
+  "orchestration": {
+    "consumes": ["nifti_file"],
+    "produces": ["segmentation_result"],
+    "priority": 80
+  },
+  "routing": {
+    "trigger_keywords": ["seg_pancreas", "seg-pancreas", "pancreas", "pancreas tumor", "pancreatic", "abdominal ct", "dints"],
+    "result_slot": "segmentation_result"
+  },
+  "help": {
+    "summary": "Pancreas and tumor CT segmentation (3 classes) using MONAI DiNTS.",
+    "modes": [],
+    "options": [],
+    "examples": [
+      "@seg_pancreas help",
+      "@seg_pancreas"
+    ],
+    "notes": ["Requires a 3D abdominal CT NIfTI volume."]
+  },
+  "runtime": {
+    "host_compatible": ["gpu"],
+    "supported_accelerators": ["gpu"],
+    "preferred_accelerator": "gpu",
+    "requires_gpu": true,
+    "allow_cpu_fallback": false,
+    "estimated_runtime_sec": 10,
+    "notes": "Requires GPU for DiNTS 3D sliding-window inference."
+  }
+}

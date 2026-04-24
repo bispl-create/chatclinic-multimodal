@@ -1,0 +1,7 @@
+# Pinned to match the current container environment.
+# torch/torchvision come from the CUDA wheel install step in the Dockerfile.
+monai==1.3.2
+nibabel==5.4.2
+numpy==1.26.4
+omegaconf==2.3.0
+scipy==1.13.1

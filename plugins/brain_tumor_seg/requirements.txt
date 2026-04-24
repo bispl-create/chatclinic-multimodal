@@ -1,0 +1,9 @@
+# Pinned to match the current container environment — do not bump without
+# verifying compatibility with the other tool plugins.
+# torch/torchvision are installed separately from the CUDA wheel index in the
+# Dockerfile, so they are intentionally omitted here.
+monai==1.3.2
+nibabel==5.4.2
+numpy==1.26.4
+omegaconf==2.3.0
+scipy==1.13.1
