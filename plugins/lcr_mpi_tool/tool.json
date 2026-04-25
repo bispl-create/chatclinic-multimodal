@@ -1,0 +1,55 @@
+{
+  "name": "lcr_mpi_tool",
+  "team": "lcr_mpi_team",
+  "task_type": "analysis-task",
+  "modality": "medical-image",
+  "approval_required": true,
+  "entrypoint": "run.py",
+  "description": "CRITICAL: MUST USE THIS TOOL when the user explicitly mentions 'lcr_mpi_tool', 'GAN', 'I2SB', 'RDDM', or asks for 'image restoration', '\uc601\uc0c1 \ubcf5\uc6d0' of their uploaded medical images.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "model_type": {
+        "type": "string",
+        "enum": ["gan", "i2sb", "rddm", "all"],
+        "description": "Extract the exact image restoration model requested by the user. If the user says 'gan', output 'gan'."
+      }
+    },
+    "required": ["model_type"]
+  },
+  "keywords": [
+    "mpi",
+    "image restoration",
+    "gan",
+    "i2sb",
+    "rddm",
+    "\uc601\uc0c1 \ubcf5\uc6d0",
+    "\ud654\uc9c8 \uac1c\uc120"
+  ],
+  "recommended_stage": "post-intake",
+  "consumes": [
+    "medical-image"
+  ],
+  "produces": [
+    "restored-image"
+  ],
+  "ui_card": "MPI Inference Results",
+  "priority": 100,
+  "owner": "lcr_mpi_team",
+  "version": "1.1.0",
+  "runtime": {
+    "host_compatible": [
+      "cpu",
+      "gpu"
+    ],
+    "supported_accelerators": [
+      "cpu",
+      "gpu"
+    ],
+    "preferred_accelerator": "gpu",
+    "requires_gpu": false,
+    "allow_cpu_fallback": true,
+    "estimated_runtime_sec": 1800,
+    "notes": "GAN runs fast on CPU. I2SB and RDDM are significantly faster on GPU."
+  }
+}
