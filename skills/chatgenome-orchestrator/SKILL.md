@@ -17,12 +17,20 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 
 **DICOM**
 - Auto: DICOM Review (metadata, series summary, preview)
+- `@ct_denoise [backend=corediff|fastddpm]` — Low-dose CT denoising (CoreDiff / Fast-DDPM)
+- `@ct_artifact` — CT streak / metal / motion artifact reduction (CoreDiff)
+- `@mri_denoise [size=small|medium|large]` — MRI denoising (Microsoft SNRAware)
+- `@mri_sr` — MRI super-resolution (Fast-DDPM PMUB)
+- `@med_translate` — Medical image translation / synthesis (Fast-DDPM BRATS)
+- `@xray_denoise` — Chest X-ray denoising (TorchXRayVision ResNetAE autoencoder pretrained on PadChest/NIH/CheXpert/MIMIC; SharpXR preferred when user supplies weights)
 
 **PNG / JPG / TIFF Image**
 - Auto: Image Review (metadata, EXIF, thumbnail)
+- `@ct_denoise`, `@ct_artifact`, `@mri_denoise`, `@mri_sr`, `@med_translate`, `@xray_denoise` — Medical image restoration tools (see DICOM)
 
 **NIfTI Volume (.nii, .nii.gz)**
 - Auto: NIfTI Review (shape, voxel dimensions, orientation, 3D viewer via Niivue)
+- `@ct_denoise`, `@ct_artifact`, `@mri_denoise`, `@mri_sr`, `@med_translate` — Medical image restoration tools (operate on central slice)
 
 **FHIR Bundle**
 - Auto: FHIR Browser (patient, medications, labs, care team)
@@ -161,6 +169,8 @@ The chat layer should separate general conversation from grounded Studio interpr
 
 - A tool should run only when the user explicitly requests execution or when the workflow stage deterministically requires it.
 - Prefer `@toolname` as the explicit execution trigger for tool calls.
+- Allow high-confidence natural-language execution intents (for example, "please denoise this chest X-ray") to route to the matching tool internally.
+- When natural-language routing is used, the assistant should make the resolved tool explicit in the response (for example, interpreted as `@xray_denoise`).
 - Prefer `@toolname help` when the user wants to understand tool options before execution.
 - `@toolname` should use the current active source by default.
 - Tool recommendation policy belongs in skill; actual tool invocation belongs in backend/runtime.

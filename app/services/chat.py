@@ -53,6 +53,7 @@ from app.models import (
 from app.services.tool_runner import (
     load_tool_manifests,
     manifest_for_alias,
+    run_tool,
     tool_aliases,
     tool_chat_metadata,
     tool_direct_chat_metadata,
@@ -74,13 +75,15 @@ from plugins.vcf_review_tool.logic import execute as run_vcf_review
 OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "45"))
 
 
-def _parse_at_tool_request(question: str) -> dict[str, object] | None:
-    stripped = question.strip()
-    match = re.match(r"^@([A-Za-z0-9_-]+)(?:\s+(.*))?$", stripped, flags=re.DOTALL)
-    if not match:
-        return None
-    raw_alias = match.group(1).strip().lower()
-    remainder = (match.group(2) or "").strip()
+_NL_TOOL_SOURCE_TYPES = {"image", "dicom", "nifti"}
+
+
+def _materialize_tool_request(
+    raw_alias: str,
+    remainder: str,
+    *,
+    inferred_from_nl: bool = False,
+) -> dict[str, object]:
     lowered = remainder.lower()
     manifest = manifest_for_alias(raw_alias)
     if manifest is not None:
@@ -94,6 +97,7 @@ def _parse_at_tool_request(question: str) -> dict[str, object] | None:
             "registry_entry": registry_entry,
             "remainder": remainder,
             "is_help": lowered in {"help", "--help", "-h"} or lowered.startswith("help "),
+            "inferred_from_nl": inferred_from_nl,
         }
     return {
         "manifest": None,
@@ -102,7 +106,177 @@ def _parse_at_tool_request(question: str) -> dict[str, object] | None:
         "registry_entry": None,
         "remainder": remainder,
         "is_help": False,
+        "inferred_from_nl": inferred_from_nl,
     }
+
+
+def _parse_at_tool_request(question: str) -> dict[str, object] | None:
+    stripped = question.strip()
+    match = re.match(r"^@([A-Za-z0-9_-]+)(?:\s+(.*))?$", stripped, flags=re.DOTALL)
+    if not match:
+        return None
+    raw_alias = match.group(1).strip().lower()
+    remainder = (match.group(2) or "").strip()
+    return _materialize_tool_request(raw_alias, remainder)
+
+
+def _normalize_nl_question(question: str) -> str:
+    return re.sub(r"\s+", " ", question.strip().lower())
+
+
+def _looks_like_conceptual_question(normalized_question: str) -> bool:
+    conceptual_prefixes = (
+        "what ",
+        "why ",
+        "where ",
+        "when ",
+        "explain ",
+        "describe ",
+        "tell me ",
+        "compare ",
+    )
+    if normalized_question.startswith(conceptual_prefixes):
+        return True
+    if re.match(r"^how\s+(does|do|is|are)\b", normalized_question):
+        return True
+    if any(token in normalized_question for token in ("what is", "how does", "difference between", "pros and cons")):
+        return True
+    return False
+
+
+def _infer_restoration_alias_from_nl(question: str, source_type: str) -> str | None:
+    normalized = _normalize_nl_question(question)
+    if not normalized:
+        return None
+
+    # Keep natural-language auto-routing conservative: only imaging sources.
+    if source_type.strip().lower() not in _NL_TOOL_SOURCE_TYPES:
+        return None
+
+    has_execution_cue = bool(re.search(r"\b(run|apply|execute|please|can you|could you)\b", normalized))
+    # Accept common denoise phrasings and misspellings (for example, "denoishing").
+    has_denoise_cue = bool(re.search(r"\bde[\s-]?nois\w*\b", normalized)) or any(token in normalized for token in (
+        "reduce noise", "remove noise", "clean up", "cleanup",
+        "clean the", "noise reduction", "fix the noise", "fix noise", "restore",
+        "restoration", "smooth", "smoothen", "de-speckle", "despeckle",
+    ))
+    has_artifact_cue = any(token in normalized for token in (
+        "artifact", "artifacts", "streak", "streaking", "metal artifact",
+        "motion artifact", "ring", "beam hardening", "reduce streak",
+    ))
+    has_sr_cue = any(token in normalized for token in (
+        "super resolution", "super-resolution", "super resolve", "super-resolve",
+        "superres", "super-res", "upscale", "upscaling", "upsample",
+        "high resolution", "higher resolution", "sharpen", "sharper",
+    ))
+    has_translate_cue = any(token in normalized for token in (
+        "translate", "translation", "synthesize", "synthesis", "cross-contrast",
+        "convert contrast", "generate contrast", "cross modality", "cross-modality",
+    ))
+    has_action_cue = has_denoise_cue or has_artifact_cue or has_sr_cue or has_translate_cue
+
+    if not has_action_cue:
+        return None
+    if _looks_like_conceptual_question(normalized) and not has_execution_cue:
+        return None
+    # Require either a context word (this/current/image/scan/...) OR a bare
+    # modality mention OR a bare imperative verb-phrase — this lets "reduce artifacts"
+    # and "super resolve this" route without needing an explicit "image" word.
+    has_context_cue = bool(re.search(
+        r"\b(this|current|uploaded|image|scan|slice|dicom|volume|xray|x-ray|cxr|"
+        r"ct|mri|mr|film|radiograph|nifti|png|jpg|jpeg|tiff)\b",
+        normalized,
+    ))
+    if not (has_context_cue or has_action_cue):
+        return None
+
+    is_xray = any(token in normalized for token in ("xray", "x-ray", "cxr", "chest radiograph", "chest xray", "chest x-ray"))
+    is_ct = bool(re.search(r"\bct\b", normalized)) or "computed tomography" in normalized
+    is_mri = bool(re.search(r"\bmri\b", normalized)) or bool(re.search(r"\bmr\b", normalized)) or "magnetic resonance" in normalized
+
+    if is_xray and has_denoise_cue:
+        return "xray_denoise"
+    if is_ct and has_artifact_cue:
+        return "ct_artifact"
+    if is_ct and has_denoise_cue:
+        return "ct_denoise"
+    if is_mri and has_sr_cue:
+        return "mri_sr"
+    if is_mri and has_translate_cue:
+        return "med_translate"
+    if is_mri and has_denoise_cue:
+        return "mri_denoise"
+
+    # Conservative source-aware defaults when modality is not stated.
+    normalized_source = source_type.strip().lower()
+    if normalized_source == "nifti":
+        if has_sr_cue:
+            return "mri_sr"
+        if has_translate_cue:
+            return "med_translate"
+        if has_denoise_cue:
+            return "mri_denoise"
+    if normalized_source == "dicom":
+        if has_artifact_cue:
+            return "ct_artifact"
+        if has_sr_cue:
+            return "mri_sr"
+        if has_translate_cue:
+            return "med_translate"
+        if has_denoise_cue:
+            # For DICOM without modality keyword, default to CT denoising (most common).
+            return "ct_denoise"
+    if normalized_source == "image":
+        # X-ray hints take precedence, then CT/MRI keywords, otherwise no routing
+        # because a bare "image" source can't be disambiguated without modality cue.
+        if has_denoise_cue and any(t in normalized for t in ("xray", "x-ray", "cxr", "chest", "radiograph")):
+            return "xray_denoise"
+    return None
+
+
+def _infer_tool_remainder_from_nl(alias: str, question: str) -> str:
+    normalized = _normalize_nl_question(question)
+    options: dict[str, str] = {}
+    if alias == "ct_denoise":
+        if re.search(r"\bfast[\s-]?ddpm\b", normalized):
+            options["backend"] = "fastddpm"
+        elif re.search(r"\bcore[\s-]?diff\b", normalized):
+            options["backend"] = "corediff"
+        elif re.search(r"\bddpm\b", normalized):
+            options["backend"] = "fastddpm"
+    if alias == "mri_denoise":
+        for size in ("small", "medium", "large"):
+            if re.search(rf"\b{size}\b", normalized):
+                options["size"] = size
+                break
+    return " ".join(f"{key}={value}" for key, value in options.items())
+
+
+def _parse_nl_tool_request(question: str, source_type: str) -> dict[str, object] | None:
+    if question.strip().startswith("@"):
+        return None
+    alias = _infer_restoration_alias_from_nl(question, source_type)
+    if not alias:
+        return None
+    remainder = _infer_tool_remainder_from_nl(alias, question)
+    request = _materialize_tool_request(alias, remainder, inferred_from_nl=True)
+    if request.get("manifest") is None:
+        return None
+    return request
+
+
+def _annotate_nl_inferred_response(response: Any, tool_request: dict[str, object]) -> Any:
+    if not bool(tool_request.get("inferred_from_nl")):
+        return response
+    alias = str(tool_request.get("alias") or tool_request.get("input_alias") or "tool").strip()
+    if not alias:
+        return response
+    answer = str(getattr(response, "answer", "") or "")
+    note = f"Interpreted this natural-language request as `@{alias}`.\n\n"
+    try:
+        return response.model_copy(update={"answer": f"{note}{answer}".strip()})
+    except Exception:
+        return response
 
 
 
@@ -813,6 +987,32 @@ def _compact_image_context(payload: ImageChatRequest) -> dict[str, object]:
     for key in ("Make", "Model", "DateTime", "Software", "ImageWidth", "ImageLength", "GPS"):
         if key in payload.analysis.exif_data:
             exif_summary[key] = payload.analysis.exif_data[key]
+
+    artifacts = payload.analysis.artifacts or {}
+    restoration = artifacts.get("restoration") if isinstance(artifacts.get("restoration"), dict) else {}
+    metrics = restoration.get("metrics") if isinstance(restoration.get("metrics"), dict) else {}
+    restoration_summary = {
+        "tool": restoration.get("tool"),
+        "task": restoration.get("task"),
+        "backend": restoration.get("backend"),
+        "mode": restoration.get("mode"),
+        "notes": restoration.get("notes") if isinstance(restoration.get("notes"), list) else [],
+        "metrics": {
+            "snr_before_db": metrics.get("snr_before_db"),
+            "snr_after_db": metrics.get("snr_after_db"),
+            "snr_improvement_db": metrics.get("snr_improvement_db"),
+            "noise_sigma_before": metrics.get("noise_sigma_before"),
+            "noise_sigma_after": metrics.get("noise_sigma_after"),
+            "sharpness_before": metrics.get("sharpness_before"),
+            "sharpness_after": metrics.get("sharpness_after"),
+            "change_mae": metrics.get("change_mae"),
+        },
+        "has_before_after_previews": bool(
+            restoration.get("before_preview_data_url")
+            and restoration.get("after_preview_data_url")
+        ),
+    }
+
     context: dict[str, object] = {
         "analysis_id": payload.analysis.analysis_id,
         "file_name": payload.analysis.file_name,
@@ -823,6 +1023,7 @@ def _compact_image_context(payload: ImageChatRequest) -> dict[str, object]:
         "color_mode": payload.analysis.color_mode,
         "bit_depth": payload.analysis.bit_depth,
         "exif_summary": exif_summary,
+        "restoration": restoration_summary,
         "warnings": payload.analysis.warnings[:12],
         "draft_answer": payload.analysis.draft_answer,
         "used_tools": payload.analysis.used_tools,
@@ -1002,7 +1203,9 @@ CHAT_OPENAI_CONFIG: dict[str, dict[str, Any]] = {
         "grounded_system_prompt": (
             "You are an image metadata analysis copilot. "
             "The user explicitly requested grounded reasoning via a trigger such as $studio or $current analysis. "
-            "Answer only from the provided image metadata (dimensions, format, EXIF, color mode) and do not invent information. "
+            "Answer only from the provided grounded image context, including metadata and restoration artifacts when present, and do not invent information. "
+            "If restoration.metrics includes PSNR/SSIM, report those exact values. "
+            "If those metrics are missing, state clearly that they are unavailable in the current context. "
             "When EXIF data includes GPS coordinates, camera make/model, or timestamps, mention them explicitly."
         ),
         "general_system_prompt": (
@@ -1722,7 +1925,113 @@ def _handle_at_tool_request_for_source(
     direct_response = _run_direct_tool_for_source(source_type, payload, tool_request)
     if direct_response is not None:
         return direct_response
+    generic_response = _run_generic_entrypoint_for_source(source_type, payload, tool_request)
+    if generic_response is not None:
+        return generic_response
     return _basic_source_response(source_type, _unknown_tool_answer(tool_request))
+
+
+_GENERIC_SOURCE_PATH_ATTRS: dict[str, tuple[str, ...]] = {
+    "image": ("source_image_path",),
+    "dicom": ("source_dicom_path",),
+    "nifti": ("source_nifti_path",),
+}
+
+_GENERIC_PAYLOAD_KEYS: dict[str, str] = {
+    "image": "image_path",
+    "dicom": "dicom_path",
+    "nifti": "nifti_path",
+}
+
+
+def _run_generic_entrypoint_for_source(
+    source_type: str,
+    payload: Any,
+    tool_request: dict[str, object],
+) -> Any | None:
+    """Generic fallback: run any manifest with an `entrypoint` that targets this source type."""
+    manifest = tool_request.get("manifest")
+    if not isinstance(manifest, dict):
+        return None
+    entrypoint = str(manifest.get("entrypoint") or "").strip()
+    if not entrypoint:
+        return None
+    direct_chat = tool_direct_chat_metadata(manifest)
+    declared_sources = {str(s).strip().lower() for s in (direct_chat.get("source_types") or [])}
+    top_level_sources = {str(s).strip().lower() for s in (manifest.get("source_types") or [])}
+    allowed = declared_sources or top_level_sources
+    if allowed and source_type not in allowed:
+        return None
+
+    path_attrs = _GENERIC_SOURCE_PATH_ATTRS.get(source_type, ())
+    source_path = ""
+    analysis = getattr(payload, "analysis", None)
+    for attr in path_attrs:
+        val = getattr(analysis, attr, None) if analysis is not None else None
+        if isinstance(val, str) and val.strip():
+            source_path = val.strip()
+            break
+    if not source_path:
+        return _basic_source_response(
+            source_type,
+            f"`@{tool_request.get('alias')}` could not find an active {source_type} source path.",
+            used_fallback=True,
+        )
+
+    payload_key = _GENERIC_PAYLOAD_KEYS.get(source_type, "file_path")
+    tool_payload: dict[str, Any] = {payload_key: source_path, "file_path": source_path}
+    # For the generic entrypoint dispatcher, always attempt key=value parsing —
+    # restoration tools use `backend=fastddpm`, `size=medium` style options
+    # regardless of whether argument_mode is declared in tool.json.
+    remainder = str(tool_request.get("remainder") or "")
+    options = _extract_key_value_options(remainder)
+    declared_options = _parse_direct_tool_options(
+        remainder, str(direct_chat.get("argument_mode") or "")
+    )
+    if isinstance(declared_options, dict):
+        options.update(declared_options)
+    if isinstance(options, dict):
+        tool_payload.update(options)
+
+    tool_name = str(manifest.get("name") or "").strip()
+    try:
+        result = run_tool(tool_name, tool_payload)
+    except Exception as exc:  # pragma: no cover
+        alias = str(tool_request.get("alias") or tool_name or "tool")
+        return _basic_source_response(source_type, f"`@{alias}` execution failed: {exc}", used_fallback=True)
+
+    analysis_dict = result.get("analysis") if isinstance(result, dict) else None
+    answer = ""
+    if isinstance(analysis_dict, dict):
+        answer = str(analysis_dict.get("draft_answer") or "").strip()
+    if not answer:
+        answer = f"`@{tool_request.get('alias') or tool_name}` completed."
+
+    response_cls = _source_response_class(source_type)
+    kwargs: dict[str, Any] = {
+        "source_type": source_type,
+        "answer": answer,
+        "citations": [],
+        "used_fallback": False,
+    }
+    if isinstance(analysis_dict, dict):
+        try:
+            kwargs["analysis"] = analysis_dict
+        except Exception:
+            pass
+        requested_view = direct_chat.get("requested_view")
+        if requested_view:
+            kwargs["requested_view"] = str(requested_view)
+        studio = direct_chat.get("studio")
+        if isinstance(studio, dict):
+            kwargs["studio"] = studio
+        result_kind = direct_chat.get("result_kind")
+        if result_kind:
+            kwargs["result_kind"] = str(result_kind)
+    try:
+        return response_cls(**kwargs)
+    except Exception:
+        return _basic_source_response(source_type, answer, used_fallback=False)
 
 
 
@@ -1741,12 +2050,15 @@ def _answer_source_chat(source_type: str, payload: Any) -> Any:
             used_fallback=False,
         )
 
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
+    tool_request = _parse_at_tool_request(payload.question)
+    if tool_request is None:
+        tool_request = _parse_nl_tool_request(payload.question, source_type)
+    if tool_request:
         try:
-            return _handle_at_tool_request_for_source(source_type, payload, at_tool_request)
+            response = _handle_at_tool_request_for_source(source_type, payload, tool_request)
+            return _annotate_nl_inferred_response(response, tool_request)
         except Exception as exc:
-            alias = str(at_tool_request.get("alias") or "tool")
+            alias = str(tool_request.get("alias") or "tool")
             return response_cls(
                 source_type=source_type,
                 answer=f"`@{alias}` execution failed: {exc}",
@@ -1807,16 +2119,21 @@ def answer_multimodal_chat(payload: MultimodalChatRequest) -> MultimodalChatResp
     # Determine primary source for @tool routing
     primary = str(payload.primary_source_type or "").strip()
 
-    # For @tool requests, route to the primary source's handler
-    at_tool_request = _parse_at_tool_request(payload.question)
-    if at_tool_request:
-        source_type, single_payload = _multimodal_to_single(payload, primary or None)
+    # For @tool requests and high-confidence NL tool requests, route to the primary source's handler.
+    inferred_source_type, _ = _multimodal_to_single(payload, primary or None)
+    tool_request = _parse_at_tool_request(payload.question)
+    if tool_request is None:
+        tool_request = _parse_nl_tool_request(payload.question, inferred_source_type)
+
+    if tool_request:
+        source_type, single_payload = _multimodal_to_single(payload, primary or inferred_source_type or None)
         if single_payload is not None:
             try:
-                result = _handle_at_tool_request_for_source(source_type, single_payload, at_tool_request)
+                result = _handle_at_tool_request_for_source(source_type, single_payload, tool_request)
+                result = _annotate_nl_inferred_response(result, tool_request)
                 return _single_response_to_multimodal(result)
             except Exception as exc:
-                alias = str(at_tool_request.get("alias") or "tool")
+                alias = str(tool_request.get("alias") or "tool")
                 return MultimodalChatResponse(
                     answer=f"`@{alias}` execution failed: {exc}",
                     citations=[],

@@ -550,6 +550,15 @@ type SourceReadyResponse = {
   file_kind?: string | null;
 };
 
+type UploadedSourceItem = {
+  id: string;
+  name: string;
+  sourceType: SourceReadyResponse["source_type"];
+  sourcePath: string;
+  fileKind?: string | null;
+  timestamp: number;
+};
+
 type SessionMode = "prs" | "vcf_analysis" | "raw_sequence" | "text_review" | "spreadsheet_review" | "imaging_review" | "image_review" | "fhir_review";
 
 type PrsPrepResponse = {
@@ -1295,9 +1304,10 @@ export default function Page() {
   const [summaryStatsHasMore, setSummaryStatsHasMore] = useState(false);
   const [summaryStatsRowsLoading, setSummaryStatsRowsLoading] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
-  const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | "nifti" | "fhir" | null>(null);
+  const [attachedSourceType, setAttachedSourceType] = useState<SourceReadyResponse["source_type"] | null>(null);
   const [activeSource, setActiveSource] = useState<SourceReadyResponse | null>(null);
-  const [uploadedSources, setUploadedSources] = useState<Array<{ name: string; sourceType: string; timestamp: number }>>([]);
+  const [uploadedSources, setUploadedSources] = useState<UploadedSourceItem[]>([]);
+  const [imageAnalysesByPath, setImageAnalysesByPath] = useState<Record<string, ImageSourceResponse>>({});
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const sessionMode: SessionMode | null = useMemo(() => {
     const src = attachedSourceType;
@@ -1349,6 +1359,7 @@ export default function Page() {
     outputPrefix: "",
   });
   const [toolRegistryOpen, setToolRegistryOpen] = useState(false);
+  const latestImageUploadRequestRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const studioCanvasRef = useRef<HTMLElement | null>(null);
   const chatStreamRef = useRef<HTMLDivElement | null>(null);
@@ -1583,6 +1594,26 @@ export default function Page() {
     fileInputRef.current?.click();
   }
 
+  function handleSelectUploadedSource(source: UploadedSourceItem) {
+    setActiveSource({
+      source_type: source.sourceType,
+      file_name: source.name,
+      source_path: source.sourcePath,
+      file_kind: source.fileKind,
+    });
+    setAttachedSourceType(source.sourceType);
+    setAttachedFile(null);
+    if (source.sourceType === "image") {
+      const cached = source.sourcePath ? imageAnalysesByPath[source.sourcePath] ?? null : null;
+      setImageAnalysis(cached);
+      if (cached) {
+        activateStudioFromPayload(cached, "image_review", "image");
+      }
+    }
+    setStatus(`Active source switched to ${source.name}`);
+    setSourcesExpanded(false);
+  }
+
   async function uploadActiveSource(file: File): Promise<SourceReadyResponse> {
     const formData = new FormData();
     formData.append("file", file);
@@ -1628,14 +1659,38 @@ export default function Page() {
         : isSummaryStatsFileName(file.name) && !isVcfFileName(file.name)
           ? "summary_stats"
           : "vcf";
+    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const imageUploadRequestId = guessedSourceType === "image" ? ++latestImageUploadRequestRef.current : null;
+    const finalizeUploadedSource = (sourcePath: string, fileKind?: string | null) => {
+      setUploadedSources((prev) =>
+        prev.map((src) =>
+          src.id === uploadId
+            ? {
+                ...src,
+                sourcePath,
+                fileKind,
+              }
+            : src,
+        ),
+      );
+    };
+    const removeUploadedSource = () => {
+      setUploadedSources((prev) => prev.filter((src) => src.id !== uploadId));
+    };
     setAttachedFile(file);
     setAttachedSourceType(guessedSourceType);
     setActiveSource(null);
     // Track all uploaded sources for the source panel
-    setUploadedSources((prev) => {
-      const filtered = prev.filter((s) => s.sourceType !== guessedSourceType);
-      return [...filtered, { name: file.name, sourceType: guessedSourceType, timestamp: Date.now() }];
-    });
+    setUploadedSources((prev) => [
+      ...prev,
+      {
+        id: uploadId,
+        name: file.name,
+        sourceType: guessedSourceType,
+        sourcePath: "",
+        timestamp: Date.now(),
+      },
+    ]);
     setStatus(
       guessedSourceType === "fhir"
         ? "Uploading FHIR source..."
@@ -1707,10 +1762,12 @@ export default function Page() {
       if (guessedSourceType === "fhir") {
         const payload = await handleStartFhirReview(file, { silent: true });
         if (!payload) {
+          removeUploadedSource();
           event.target.value = "";
           setPendingUploadRole("default");
           return;
         }
+        finalizeUploadedSource(payload.source_fhir_path ?? "", payload.file_kind);
         setActiveSource({
           source_type: "fhir",
           file_name: payload.file_name,
@@ -1728,8 +1785,18 @@ export default function Page() {
       }
 
       if (guessedSourceType === "image") {
-        const payload = await handleStartImageReview(file, { silent: true });
+        const payload = await handleStartImageReview(file, {
+          silent: true,
+          requestId: imageUploadRequestId ?? undefined,
+        });
         if (!payload) {
+          removeUploadedSource();
+          event.target.value = "";
+          setPendingUploadRole("default");
+          return;
+        }
+        finalizeUploadedSource(payload.source_image_path ?? "", payload.file_kind);
+        if (imageUploadRequestId !== null && imageUploadRequestId !== latestImageUploadRequestRef.current) {
           event.target.value = "";
           setPendingUploadRole("default");
           return;
@@ -1753,10 +1820,12 @@ export default function Page() {
       if (guessedSourceType === "nifti") {
         const payload = await handleStartNiftiReview(file, { silent: true });
         if (!payload) {
+          removeUploadedSource();
           event.target.value = "";
           setPendingUploadRole("default");
           return;
         }
+        finalizeUploadedSource(payload.source_nifti_path ?? "", payload.file_kind);
         setActiveSource({
           source_type: "nifti",
           file_name: payload.file_name,
@@ -1776,10 +1845,12 @@ export default function Page() {
       if (guessedSourceType === "text") {
         const payload = await handleStartTextReview(file, { silent: true });
         if (!payload) {
+          removeUploadedSource();
           event.target.value = "";
           setPendingUploadRole("default");
           return;
         }
+        finalizeUploadedSource(payload.source_text_path ?? "");
         setActiveSource({
           source_type: "text",
           file_name: payload.file_name,
@@ -1798,10 +1869,12 @@ export default function Page() {
       if (guessedSourceType === "spreadsheet") {
         const payload = await handleStartSpreadsheetReview(file, { silent: true });
         if (!payload) {
+          removeUploadedSource();
           event.target.value = "";
           setPendingUploadRole("default");
           return;
         }
+        finalizeUploadedSource(payload.source_spreadsheet_path ?? "");
         setActiveSource({
           source_type: "spreadsheet",
           file_name: payload.file_name,
@@ -1820,10 +1893,12 @@ export default function Page() {
       if (guessedSourceType === "dicom") {
         const payload = await handleStartDicomReview(file, { silent: true });
         if (!payload) {
+          removeUploadedSource();
           event.target.value = "";
           setPendingUploadRole("default");
           return;
         }
+        finalizeUploadedSource(payload.source_dicom_path ?? "", payload.file_kind);
         setActiveSource({
           source_type: "dicom",
           file_name: payload.file_name,
@@ -1843,10 +1918,12 @@ export default function Page() {
       if (guessedSourceType === "summary_stats") {
         const payload = await handleStartSummaryStats(file, { silent: true });
         if (!payload) {
+          removeUploadedSource();
           event.target.value = "";
           setPendingUploadRole("default");
           return;
         }
+        finalizeUploadedSource(payload.source_stats_path ?? "");
         setActiveSource({
           source_type: "summary_stats",
           file_name: payload.file_name,
@@ -1865,10 +1942,12 @@ export default function Page() {
       if (guessedSourceType === "raw_qc") {
         const payload = await handleStartRawQc(file, { silent: true });
         if (!payload) {
+          removeUploadedSource();
           event.target.value = "";
           setPendingUploadRole("default");
           return;
         }
+        finalizeUploadedSource(payload.source_raw_path ?? "", payload.facts.file_kind);
         setActiveSource({
           source_type: "raw_qc",
           file_name: payload.facts.file_name,
@@ -1886,6 +1965,7 @@ export default function Page() {
       }
 
       const source = await uploadActiveSource(file);
+      finalizeUploadedSource(source.source_path, source.file_kind);
       setActiveSource(source);
       if (sessionMode === "prs") {
         if (slotRole === "prs_summary") {
@@ -1903,6 +1983,7 @@ export default function Page() {
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
+      removeUploadedSource();
       setError(message);
       setStatus("Source upload failed");
       addMessage({
@@ -2451,17 +2532,54 @@ export default function Page() {
       return;
     }
 
-    // No frontend handler matched — if an analysis is loaded, let the backend chat handler try
-    if (analysis) {
-      await handleAskAnalysisQuestion(`@${alias}${remainder ? " " + remainder : ""}`, analysis);
+    // No frontend handler matched — delegate to backend chat for the active source type.
+    const toolCommand = `@${alias}${remainder ? " " + remainder : ""}`;
+    if (preAnalysisSource.source_type === "vcf" && analysis) {
+      await handleAskAnalysisQuestion(toolCommand, analysis);
       return;
     }
+    if (preAnalysisSource.source_type === "raw_qc" && rawQcAnalysis) {
+      await handleAskRawQcQuestion(toolCommand, rawQcAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "summary_stats" && summaryStatsAnalysis) {
+      await handleAskSummaryStatsQuestion(toolCommand, summaryStatsAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "text" && textAnalysis) {
+      await handleAskTextQuestion(toolCommand, textAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "dicom" && dicomAnalysis) {
+      await handleAskDicomQuestion(toolCommand, dicomAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "spreadsheet" && spreadsheetAnalysis) {
+      await handleAskSpreadsheetQuestion(toolCommand, spreadsheetAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "image" && imageAnalysis) {
+      await handleAskImageQuestion(toolCommand, imageAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "nifti" && niftiAnalysis) {
+      await handleAskNiftiQuestion(toolCommand, niftiAnalysis);
+      return;
+    }
+    if (preAnalysisSource.source_type === "fhir" && fhirAnalysis) {
+      await handleAskFhirQuestion(toolCommand, fhirAnalysis);
+      return;
+    }
+
+    // If source is active but typed analysis payload is missing, avoid a false incompatibility message.
     addMessage({
       role: "assistant",
       content:
-        `\`@${alias}\` is not compatible with the current active source.` +
-        (preAnalysisSource ? ` Current source type: \`${preAnalysisSource.source_type}\`.` : ""),
+        "The current source is active, but its analysis payload is not ready yet. " +
+        "Please wait for auto-review to finish (or re-upload the file) and try the tool again.",
     });
+    return;
+
   }
 
   async function handleStartRawQc(file: File, options?: { silent?: boolean }): Promise<RawQcResponse | null> {
@@ -2642,9 +2760,11 @@ export default function Page() {
 
   async function handleStartImageReview(
     file: File,
-    options?: { silent?: boolean },
+    options?: { silent?: boolean; requestId?: number },
   ): Promise<ImageSourceResponse | null> {
     const silent = options?.silent ?? false;
+    const isStaleRequest = () =>
+      options?.requestId != null && options.requestId !== latestImageUploadRequestRef.current;
     setError(null);
     setStatus("Running image review...");
     if (!silent) {
@@ -2668,12 +2788,24 @@ export default function Page() {
       }
 
       const payload: ImageSourceResponse = await response.json();
+      if (payload.source_image_path) {
+        setImageAnalysesByPath((current) => ({
+          ...current,
+          [payload.source_image_path as string]: payload,
+        }));
+      }
+      if (isStaleRequest()) {
+        return payload;
+      }
       setImageAnalysis(payload);
       activateStudioFromPayload(payload, "image_review", "image");
       setStatus("Image review ready");
       setComposerText("");
       return payload;
     } catch (caught) {
+      if (isStaleRequest()) {
+        return null;
+      }
       const message = caught instanceof Error ? caught.message : String(caught);
       setError(message);
       setStatus("Image review failed");
@@ -3566,6 +3698,12 @@ export default function Page() {
       const payload: ImageChatResponse = await response.json();
       if (payload.analysis) {
         setImageAnalysis(payload.analysis);
+        if (payload.analysis.source_image_path) {
+          setImageAnalysesByPath((current) => ({
+            ...current,
+            [payload.analysis!.source_image_path as string]: payload.analysis!,
+          }));
+        }
       }
       activateStudioFromPayload(payload, "image_review", "image");
       setAnalysisQa((current) => [...current, { role: "assistant", content: payload.answer }]);
@@ -4994,7 +5132,7 @@ export default function Page() {
                           onClick={() => uploadedSources.length > 1 && setSourcesExpanded((v) => !v)}
                         >
                           <div>
-                            <strong>{attachedFile?.name ?? uploadedSources[uploadedSources.length - 1].name}</strong>
+                            <strong>{activeSource?.file_name ?? attachedFile?.name ?? uploadedSources[uploadedSources.length - 1].name}</strong>
                             <p>
                               {uploadedSources.length > 1
                                 ? `${uploadedSources.length} sources loaded`
@@ -5017,20 +5155,32 @@ export default function Page() {
                         {sourcesExpanded && uploadedSources.length > 1 && (
                           <div className="sourceDropdownList" style={{ marginTop: 4, paddingLeft: 8 }}>
                             {uploadedSources.map((src, idx) => {
+                              const isActive =
+                                activeSource?.source_type === src.sourceType &&
+                                activeSource?.file_name === src.name &&
+                                (!src.sourcePath || activeSource?.source_path === src.sourcePath);
                               const typeLabel =
                                 src.sourceType === "vcf" ? "VCF"
                                 : src.sourceType === "raw_qc" ? "Raw QC"
                                 : src.sourceType === "spreadsheet" ? "Spreadsheet"
                                 : src.sourceType === "dicom" ? "DICOM"
+                                : src.sourceType === "image" ? "Image"
                                 : src.sourceType === "text" ? "Text"
                                 : src.sourceType === "summary_stats" ? "Summary Stats"
                                 : src.sourceType === "nifti" ? "NIfTI"
                                 : src.sourceType;
                               return (
-                                <article key={`src-${idx}`} className="sourceItem" style={{ opacity: 0.9, marginBottom: 4 }}>
+                                <article
+                                  key={src.id || `src-${idx}`}
+                                  className={`sourceItem ${isActive ? "sourceItemActive" : ""}`}
+                                  style={{ opacity: 0.9, marginBottom: 4, cursor: "pointer" }}
+                                  onClick={() => handleSelectUploadedSource(src)}
+                                >
                                   <div>
                                     <strong style={{ fontSize: "0.85em" }}>{src.name}</strong>
-                                    <p style={{ fontSize: "0.8em", margin: 0 }}>{typeLabel}</p>
+                                    <p style={{ fontSize: "0.8em", margin: 0 }}>
+                                      {isActive ? `Active ${typeLabel}` : typeLabel}
+                                    </p>
                                   </div>
                                 </article>
                               );

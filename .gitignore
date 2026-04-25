@@ -30,3 +30,157 @@ uploads/
 references/
 third_party/
 data/
+
+# ============================================================================
+# ChatClinic class repo — top-level .gitignore
+# ============================================================================
+# Philosophy: push the source (plugins, app code, webapp, docs, scenarios).
+# Do NOT push: model weights, downloaded backends, caches, uploads, secrets.
+# Anyone cloning should be able to reproduce everything via SETUP.md.
+
+# ----------------------------------------------------------------------------
+# Secrets & environment (NEVER push)
+# ----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!sample.env
+*.secret
+*.credentials
+.openai_key
+OPENAI_API_KEY*
+
+# ----------------------------------------------------------------------------
+# External backends — too large (8.9 GB) & auto-cloneable from upstream repos
+#   Listed in SETUP.md as: git clone <upstream> into this path
+# ----------------------------------------------------------------------------
+external_backends/
+!external_backends/.gitkeep
+
+# ----------------------------------------------------------------------------
+# External weights — too large (5.9 GB) & auto-downloadable
+#   CoreDiff:  gdown from Google Drive (see SETUP.md)
+#   FastDDPM:  huggingface-cli download SebastianJiang/FastDDPM
+#   SNRAware:  huggingface-cli download microsoft/SNRAware
+#   ResNetAE:  auto-downloads from torchxrayvision GitHub release on first use
+# ----------------------------------------------------------------------------
+external_weights/
+!external_weights/.gitkeep
+
+# ----------------------------------------------------------------------------
+# Generated content — reproducible via scripts
+# ----------------------------------------------------------------------------
+outputs/
+.cache/
+demo_images/
+!demo_images/.gitkeep
+submission_template/
+
+# Uvicorn upload store (patient files uploaded via the UI during demo)
+chatclinic-multimodal/uploads/
+chatclinic-multimodal/examples/
+
+# ----------------------------------------------------------------------------
+# Python
+# ----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.venv/
+venv/
+ENV/
+env/
+.python-version
+# ----------------------------------------------------------------------------
+# Node.js / Next.js
+# ----------------------------------------------------------------------------
+node_modules/
+.next/
+.next.bak*/
+.next-dev.log
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# ----------------------------------------------------------------------------
+# Editor / OS
+# ----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ----------------------------------------------------------------------------
+# Logs & temp files
+# ----------------------------------------------------------------------------
+*.log
+*.tmp
+*.temp
+.uvicorn.log
+/tmp/chatclinic_*.log
+
+# ----------------------------------------------------------------------------
+# uv / pip caches
+# ----------------------------------------------------------------------------
+.uv/
+uv.lock.tmp
+
+# ----------------------------------------------------------------------------
+# Third-party downloaded artifacts (tool-specific)
+# ----------------------------------------------------------------------------
+snpEff_genes.txt
+snpEff_summary.html
+third_party/
+references/
+data/
+.opencravat/
+~/.torchxrayvision/
+
+# ----------------------------------------------------------------------------
+# Jupyter
+# ----------------------------------------------------------------------------
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+DEMO_SCENARIOS.md
+DEMO_DAY.md
+
+# ----------------------------------------------------------------------------
+# Things to KEEP (explicit allow-lists for safety)
+# ----------------------------------------------------------------------------
+!chatclinic-multimodal/
+!chatclinic-multimodal/app/
+!chatclinic-multimodal/plugins/
+!chatclinic-multimodal/skills/
+!chatclinic-multimodal/webapp/app/
+!chatclinic-multimodal/webapp/public/
+!chatclinic-multimodal/docs/
+!chatclinic-multimodal/examples/
+!SETUP.md
+!README.md
+

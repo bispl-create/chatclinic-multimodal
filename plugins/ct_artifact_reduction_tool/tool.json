@@ -1,0 +1,22 @@
+{
+  "name": "ct_artifact_reduction_tool",
+  "entrypoint": "plugins.ct_artifact_reduction_tool.logic:execute",
+  "description": "Reduce streak/metal/motion artifacts in CT slices via CoreDiff's domain-generalized diffusion prior. Accepts DICOM, NIfTI, or PNG.",
+  "task": "ct_artifact_reduction",
+  "modality": "medical-image",
+  "source": "plugin",
+  "aliases": ["ct_artifact", "ct-artifact", "ctar"],
+  "routing": { "trigger_keywords": ["ct_artifact", "ct-artifact", "ctar"] },
+  "direct_chat": {
+    "response_kind": "image_chat",
+    "result_kind": "image_analysis",
+    "requested_view": "image_review",
+    "studio": { "renderer": "image_review" },
+    "source_types": ["dicom", "nifti", "image"]
+  },
+  "source_types": ["dicom", "nifti", "image"],
+  "help": {
+    "summary": "Reduce CT artifacts (streaks, metal, motion) via CoreDiff. Best for axial CT slices.",
+    "examples": ["@ct_artifact help", "@ct_artifact"]
+  }
+}

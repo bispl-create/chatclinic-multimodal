@@ -1,0 +1,25 @@
+{
+  "name": "ct_denoise_tool",
+  "entrypoint": "plugins.ct_denoise_tool.logic:execute",
+  "description": "Low-dose CT denoising via CoreDiff / Fast-DDPM (LDFDCT). Accepts DICOM, NIfTI, or PNG/JPG of a CT slice and returns a denoised image plus before/after metrics.",
+  "task": "ct_denoising",
+  "modality": "medical-image",
+  "source": "plugin",
+  "aliases": ["ct_denoise", "ct-denoise", "ctdenoise"],
+  "routing": { "trigger_keywords": ["ct_denoise", "ct-denoise", "ctdenoise"] },
+  "direct_chat": {
+    "response_kind": "image_chat",
+    "result_kind": "image_analysis",
+    "requested_view": "image_review",
+    "studio": { "renderer": "image_review" },
+    "source_types": ["dicom", "nifti", "image"]
+  },
+  "source_types": ["dicom", "nifti", "image"],
+  "help": {
+    "summary": "Denoise a low-dose CT slice using CoreDiff (preferred) or Fast-DDPM LDFDCT as fallback.",
+    "options": [
+      {"name": "backend", "values": ["corediff", "fastddpm"], "default": "corediff"}
+    ],
+    "examples": ["@ct_denoise help", "@ct_denoise", "@ct_denoise backend=fastddpm"]
+  }
+}
