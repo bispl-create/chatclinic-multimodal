@@ -1,218 +1,164 @@
-# ChatClinic
+# ChatClinic Multimodal
 
-Multimodal clinical workspace with auto-detected source types, deterministic tool execution, Studio cards, and grounded chat.
+ChatClinic is a multimodal clinical workspace that combines deterministic tool execution, Studio card rendering, and chat-based reasoning across genomics, medical imaging, tabular data, text, and FHIR.
 
-![ChatClinic workspace preview](docs/chatclinic-ui-preview.png)
+## What the System Does
 
-## Overview
+1. You upload a source file (VCF, DICOM, image, NIfTI, raw sequencing, spreadsheet, text, FHIR, or summary stats).
+2. The backend auto-detects source type and runs the bootstrap review tool for that source.
+3. The result is normalized into a typed analysis payload and rendered as Studio cards.
+4. Chat can then:
+   - Run explicit tool commands like `@ct_denoise` or `@qqman`.
+   - Interpret natural-language requests and map them to tools when confidence is high.
+   - Answer in grounded mode with `$studio`, `$current analysis`, `$current card`, or `$grounded`.
 
-ChatClinic is a three-panel workspace: **Sources**, **Chat**, and **Studio**.
+## Core Architecture
 
-1. Upload a source file — the type is auto-detected.
-2. Bootstrap tools run automatically on upload.
-3. Review outputs in Studio cards.
-4. Ask questions in Chat — use `$studio` to ground answers in current results.
-5. Run additional tools with `@toolname` commands.
-6. Type `@help` for the full tool guide.
+- Backend API: `app/main.py`
+- Data models: `app/models.py`
+- Chat orchestration and NL routing: `app/services/chat.py`
+- Tool discovery and execution: `app/services/tool_runner.py`
+- Upload persistence and bootstrap analysis: `app/services/source_bootstrap.py`
+- Frontend state and orchestration: `webapp/app/page.tsx`
+- Plugins and tool metadata: `plugins/*/tool.json`, `plugins/*/logic.py`
 
-## Supported Source Types
+## Lazy Loading Strategy (Does Not Load All Models at Startup)
 
-| Source Type | Formats | Auto Tools |
-|-------------|---------|------------|
-| **DICOM** | `.dcm`, `.dicom` | DICOM Review (metadata, series summary, preview) |
-| **Image** | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp` | Image Review (metadata, EXIF, thumbnail) |
-| **NIfTI** | `.nii`, `.nii.gz` | NIfTI Review (shape, voxel dims, orientation, 3D Niivue viewer) |
-| **FHIR Bundle** | `.fhir.json`, `.fhir.xml`, `.ndjson` | FHIR Browser (patient, medications, labs, care team) |
-| **Excel Workbook** | `.xlsx`, `.xls` | Cohort Browser (sheets, schema, missingness) |
-| **Text / Markdown** | `.txt`, `.md`, `.markdown` | Text Review (preview, grounded summary) |
-| **VCF** | `.vcf`, `.vcf.gz` | QC Summary, Annotation, ClinVar, VEP, Candidate Ranking, ROH, CADD/REVEL, Grounded Summary |
-| **Raw Sequencing** | `.fastq`, `.fastq.gz`, `.fq`, `.fq.gz`, `.bam`, `.sam`, `.cram` | FastQC Review |
-| **Summary Statistics** | `.tsv`, `.csv`, `.txt`, `.gz` (GWAS) | Summary Stats Review (column detection, schema mapping) |
+The system is intentionally designed to avoid loading every model during service startup.
 
-## Tool Commands
+### 1) Tool metadata is cached, not model weights
 
-### Direct `@tool` commands
+In `app/services/tool_runner.py`, `load_tool_manifests()` uses `@lru_cache(maxsize=1)`.
+This means tool metadata is scanned once, cached, and reused, without loading heavy backend models.
 
-| Command | Purpose | Source |
-|---------|---------|--------|
-| `@liftover [target=hg38]` | Convert genome build (hg19 ↔ hg38) | VCF |
-| `@snpeff [genome=...]` | Run local SnpEff variant annotation | VCF |
-| `@plink [mode=qc\|score]` | PLINK 2 QC or PRS scoring | VCF |
-| `@ldblockshow chr:start:end` | LD heatmap for a genomic region | VCF |
-| `@samtools [mode=qc]` | samtools flagstat / stats / idxstats | FASTQ/BAM/SAM |
-| `@qqman` | Manhattan plot + QQ plot | Summary statistics |
-| `@prs_prep` | Build check, harmonization, score-file preparation | Summary statistics |
+### 2) Plugin code is loaded only when a tool is invoked
 
-Each tool supports `@toolname help` for detailed options.
+`run_tool()` resolves a tool manifest, then loads and executes only that tool entrypoint (`plugins.<tool>.logic:execute`).
+Unused tools are not imported into runtime.
 
-### Studio grounding
+### 3) Restoration backends load on first use, then stay cached
 
-| Prefix | Effect |
-|--------|--------|
-| `$studio` | Interpret the active Studio cards |
-| `$current analysis` | Summarize the current analysis artifacts |
-| `$current card` | Explain the currently open card |
-| `$grounded` | Answer from tool-derived state only |
+The medical restoration stack in `plugins/medical_restoration_common` is lazy by design:
 
-Without a grounding prefix, questions are answered as general knowledge.
+- `adapters.py` imports heavy runners inside execution paths (for example inside `run_fastddpm`, `run_corediff`, `run_xray_denoise`).
+- `fastddpm_runner.py` keeps model instances in `_MODEL_CACHE` keyed by task.
+- `corediff_runner.py` keeps the diffusion model in `_CACHE`.
+- `sharpxr_runner.py` and `torchxrayvision_runner.py` keep loaded models in in-memory cache dictionaries.
 
-### Other commands
+Effect:
+- First request to a backend pays model load cost.
+- Later requests reuse already-loaded models.
+- Startup stays fast and resilient even if some weights are missing.
 
-| Command | Effect |
-|---------|--------|
-| `@help` | Show full tool guide (loaded from SKILL.md) |
+### 4) Graceful fallback when weights or backend runtime are missing
 
-## Architecture
+`plugins/medical_restoration_common/adapters.py` falls back to classical processing if model execution cannot run.
+Studio still receives a usable artifact, and notes explicitly describe what path was used.
 
-```
-Sources (left)          Chat (center)           Studio (right)
-┌──────────────┐   ┌────────────────────┐   ┌──────────────────┐
-│ Auto-detect  │   │ General + grounded │   │ Card grid        │
-│ Multi-source │   │ @tool execution    │   │ Tool outputs     │
-│ Upload       │   │ $studio grounding  │   │ Interactive view  │
-└──────────────┘   └────────────────────┘   └──────────────────┘
-```
+## Natural Language Prompt Handling
 
-### Key directories
+Natural language handling is implemented in `app/services/chat.py`.
 
-| Path | Purpose |
-|------|---------|
-| `app/main.py` | FastAPI endpoints |
-| `app/models.py` | Request/response schemas |
-| `app/services/` | Chat, workflows, bootstrap, source registry, tool runner |
-| `plugins/` | Tool plugins (`tool.json` + `logic.py`) |
-| `skills/chatgenome-orchestrator/` | SKILL.md policy, bootstrap manifests |
-| `webapp/app/` | Next.js frontend (page.tsx, renderers, CSS) |
+### A) Explicit command path
 
-### Plugin structure
+If user input starts with `@tool`, the system parses it with `_parse_at_tool_request()` and routes to:
+- Direct endpoint execution (when configured), or
+- Generic plugin entrypoint execution.
 
-```
-plugins/<tool_name>/
-  tool.json       — metadata, aliases, help, workflow_binding
-  logic.py        — Python implementation (entrypoint)
-  run.py          — optional CLI wrapper (--input/--output)
-```
+### B) Implicit NL-to-tool path for imaging restoration
 
-## Adding a New Tool
+If the message does not start with `@`, `_parse_nl_tool_request()` may infer a tool alias from language cues.
+Examples of cues include denoise, artifact reduction, super-resolution, translation, plus modality hints (CT/MRI/X-ray).
 
-### Step 1. Create the plugin
+The flow is:
 
-```
-plugins/my_tool/
-  tool.json
-  logic.py
-```
+1. `_infer_restoration_alias_from_nl(question, source_type)`
+2. `_infer_tool_remainder_from_nl(alias, question)`
+3. Build inferred tool request
+4. Execute as if it were `@alias`
 
-### Step 2. Write `tool.json`
+When inferred, response text is annotated to show which tool alias was interpreted.
 
-```json
-{
-  "name": "my_tool",
-  "description": "What the tool does.",
-  "task": "my-task",
-  "modality": "genomics",
-  "source": "plugin",
-  "aliases": ["mytool"],
-  "help": {
-    "summary": "Short user-facing summary.",
-    "options": [],
-    "examples": ["@mytool help", "@mytool"]
-  }
-}
-```
+### C) Grounded vs general answering
 
-### Step 3. Write `logic.py`
+If no tool command is resolved, chat calls OpenAI:
+- Grounded mode if `$studio`-style trigger exists.
+- General mode otherwise.
 
-```python
-def run(payload: dict) -> dict:
-    # deterministic work here
-    return {"tool": "my_tool", "summary": "Done.", "artifacts": {}}
-```
+For grounded responses, compact source-specific context is built and passed with stricter system instructions.
 
-### Step 4. Wire the backend
+### D) Multimodal merged context
 
-- Add endpoint in `app/main.py` if the tool is user-facing
-- Add request/response models in `app/models.py`
-- Tool routing via registry is often automatic
+`answer_multimodal_chat()` merges active contexts (VCF/raw_qc/summary_stats/text/spreadsheet/dicom/image/nifti/fhir) and calls one multimodal response path.
+For tool execution inside multimodal chat, a primary source is selected and converted into a single-source payload for deterministic routing.
 
-### Step 5. Add Studio rendering
+## Multi-Image Upload Handling and Active Image Selection
 
-- Add renderer entry in `webapp/app/components/studioRenderers.tsx`
-- Add card component in `customStudioRenderers.tsx` or `genericStudioRenderers.tsx`
+The system previously could become ambiguous when multiple images were uploaded close together, because one late response could override active image state.
 
-### Step 6. Update SKILL.md
+The frontend flow in `webapp/app/page.tsx` now addresses this:
 
-- Add tool to the `## Help message` section
-- Add tool to the orchestrator rules
+1. Every uploaded source is kept in `uploadedSources` (no replacement by source type).
+2. Each source entry stores identity and resolved source path.
+3. Source list entries are selectable, so user can explicitly choose active source.
+4. Image analyses are cached by `source_image_path` (`imageAnalysesByPath`).
+5. A stale-upload guard (`latestImageUploadRequestRef`) prevents older image requests from overriding newer active state.
 
-## Adding a New Source Type
+Result:
+- If multiple images are uploaded sequentially or near-concurrently, the app can keep each source entry.
+- The active image for testing is explicit and switchable.
+- Out-of-order upload completions no longer hijack active image selection.
 
-1. Register in `app/services/source_registry.py` (suffixes, labels, initial tools)
-2. Create bootstrap manifest in `skills/chatgenome-orchestrator/bootstrap/`
-3. Add upload + chat endpoints in `app/main.py`
-4. Add response models in `app/models.py`
-5. Add frontend detection, state, and handlers in `webapp/app/page.tsx`
-6. Add Studio renderer component
+## Supported Sources
+
+- VCF: `.vcf`, `.vcf.gz`
+- Raw QC: `.fastq`, `.fastq.gz`, `.fq`, `.fq.gz`, `.bam`, `.sam`, `.cram`
+- Summary stats: `.tsv`, `.csv`, `.txt`, and gz variants
+- Text: `.md`, `.markdown`, `.text`, `.note`, `.log`
+- Spreadsheet: `.xlsx`, `.xlsm`
+- DICOM: `.dcm`, `.dicom`
+- Image: `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp`
+- NIfTI: `.nii`, `.nii.gz`
+- FHIR bundle: `.fhir.json`, `.fhir.xml`, `.ndjson`, selected `.json`/`.xml` naming patterns
 
 ## Quick Start
 
-### Setup
+### 1) Environment bootstrap
 
 ```bash
-git clone https://github.com/bispl-create/chatclinic-multimodal.git
-cd chatclinic-multimodal
-conda env create -f environment.yml
-conda activate chatclinic
-cp .env.example .env
+bash bootstrap.sh
 ```
 
-This environment targets Python 3.10, PyTorch 2.5.1, TorchVision 0.20.1, and CUDA 12.1 via the `pytorch` and `nvidia` conda channels.
-
-Set your API key in `.env`:
-
-```bash
-OPENAI_API_KEY=sk-...
-```
-
-### Install frontend
-
-```bash
-cd webapp
-npm install
-```
-
-### Run
-
-Backend:
+### 2) Run backend
 
 ```bash
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 ```
 
-Frontend:
+### 3) Run frontend
 
 ```bash
-cd webapp
-npm run dev
+npm install
+npm --workspace webapp run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open: `http://127.0.0.1:3000`
 
-## Documentation
+## Useful Chat Patterns
 
-- [docs/DEVELOPER_MANUAL.md](docs/DEVELOPER_MANUAL.md) — Full developer guide
-- [docs/TOOL_PLUGIN_GUIDE.md](docs/TOOL_PLUGIN_GUIDE.md) — Tool plugin reference
-- [docs/FRONTEND_RENDERER_INVENTORY.md](docs/FRONTEND_RENDERER_INVENTORY.md) — Studio renderer inventory
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Contributor setup and checklist
+- Grounded explanation: `$studio summarize this result`
+- Explicit imaging tool: `@ct_denoise backend=corediff`
+- NL imaging request: `Please denoise this CT image`
+- Tool help: `@mri_denoise help`
 
-## Design Principle
+## Developer Notes
 
-1. Use deterministic tools to establish facts.
-2. Render outputs in Studio cards.
-3. Use `$studio` only when you want the model to explain grounded results.
-
-This keeps execution, evidence, and explanation clearly separated.
+- Add a new source type: update `app/services/source_registry.py`, bootstrap manifest, API models/endpoints, frontend upload + renderer wiring.
+- Add a new tool: create `plugins/<tool>/tool.json` and `plugins/<tool>/logic.py`, then expose UI renderer if needed.
+- Keep direct-chat metadata (`direct_chat`) aligned with renderer and result slots for reliable Studio updates.
 
 ## License
 
 Copyright 2026. BISPL@KAIST AI, All rights reserved.
+
+All integratation code and research for this restoration topic project done entirely by Tien Tran contact if you have any problem

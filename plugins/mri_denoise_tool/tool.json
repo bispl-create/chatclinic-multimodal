@@ -1,0 +1,25 @@
+{
+  "name": "mri_denoise_tool",
+  "entrypoint": "plugins.mri_denoise_tool.logic:execute",
+  "description": "MRI denoising via SNRAware (Microsoft, 27.7M / 55.1M / 109M params). Handles real magnitude slices by synthesizing the complex pair. Accepts NIfTI, DICOM, or PNG.",
+  "task": "mri_denoising",
+  "modality": "medical-image",
+  "source": "plugin",
+  "aliases": ["mri_denoise", "mri-denoise", "mridenoise"],
+  "routing": { "trigger_keywords": ["mri_denoise", "mri-denoise", "mridenoise"] },
+  "direct_chat": {
+    "response_kind": "image_chat",
+    "result_kind": "image_analysis",
+    "requested_view": "image_review",
+    "studio": { "renderer": "image_review" },
+    "source_types": ["nifti", "dicom", "image"]
+  },
+  "source_types": ["nifti", "dicom", "image"],
+  "help": {
+    "summary": "Denoise an MRI slice using SNRAware. Size selects the checkpoint: small (fastest), medium, large (best quality).",
+    "options": [
+      {"name": "size", "values": ["small", "medium", "large"], "default": "small"}
+    ],
+    "examples": ["@mri_denoise help", "@mri_denoise", "@mri_denoise size=medium"]
+  }
+}
