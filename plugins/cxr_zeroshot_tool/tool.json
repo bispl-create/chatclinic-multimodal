@@ -1,0 +1,30 @@
+{
+  "name": "cxr_zeroshot_tool",
+  "entrypoint": "plugins.cxr_zeroshot_tool.logic:run",
+  "description": "Zero-shot classification for 6 unseen rare CXR-LT findings.",
+  "task": "zero_shot_classification",
+  "modality": "image",
+  "source": "plugin",
+  "aliases": ["cxr-zeroshot", "cxr-ood"],
+  "routing": {
+    "trigger_keywords": ["cxr-zeroshot", "cxr-ood"]
+  },
+  "direct_chat": {
+    "response_kind": "image_chat",
+    "result_kind": "cxr_zeroshot",
+    "requested_view": "cxr_zeroshot",
+    "studio": {
+      "renderer": "cxr_zeroshot"
+    },
+    "source_types": ["image"]
+  },
+  "source_types": ["image"],
+  "help": {
+    "summary": "Run zero-shot/OOD CXR classification for rare unseen findings.",
+    "options": [],
+    "examples": ["@cxr-zeroshot", "@cxr-ood help"]
+  },
+  "initial_for": [
+    "image"
+  ]
+}

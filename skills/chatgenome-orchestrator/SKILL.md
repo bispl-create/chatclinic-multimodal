@@ -20,6 +20,8 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 
 **PNG / JPG / TIFF Image**
 - Auto: Image Review (metadata, EXIF, thumbnail)
+- `@cxr` — Run CXR-LT multi-label classification for 30 known chest X-ray findings
+- `@cxr-zeroshot` — Run CXR-LT zero-shot/OOD classification for 6 rare unseen findings
 
 **NIfTI Volume (.nii, .nii.gz)**
 - Auto: NIfTI Review (shape, voxel dimensions, orientation, 3D viewer via Niivue)
@@ -129,6 +131,17 @@ Later tools should include:
 - Use `symbolic_alt_tool` to split symbolic ALT records into a dedicated review path.
 - Chat should refer to tool outputs and Studio summaries as the trusted state.
 - If a tool fails, preserve the prior direct implementation as fallback until migration is complete.
+
+### CXR Image Analysis Rules
+
+Apply the following rules only when the input source is a chest X-ray image.
+
+- Always prefer deterministic CXR analysis tools over free-form model interpretation.
+- Use `cxr_classification_tool` to analyze standard chest X-ray findings across 30 known classes.
+- Use `cxr_zeroshot_tool` when the user asks about rare, unseen, or unusual conditions not covered by standard classification.
+- Use `cxr_classification_tool` first to establish baseline findings before applying zero-shot analysis.
+- Use `cxr_zeroshot_tool` when the user explicitly asks about rare diseases, OOD findings, or unusual patterns.
+- Use both tools when a comprehensive interpretation of both common and rare findings is required.
 
 ## Chat policy
 

@@ -102,6 +102,8 @@ from plugins.fastqc_execution_tool.logic import FASTQC_OUTPUT_DIR
 from plugins.ldblockshow_execution_tool.logic import LDBLOCKSHOW_OUTPUT_DIR
 from plugins.qqman_execution_tool.logic import RPLOT_OUTPUT_DIR, run_cmplot_association, run_r_vcf_plots
 from plugins.summary_stats_review_tool.logic import load_summary_stats_rows
+from plugins.cxr_classification_tool.logic import run as run_cxr_classification
+from plugins.cxr_zeroshot_tool.logic import run as run_cxr_zeroshot
 
 
 ResponseT = TypeVar("ResponseT")
@@ -815,6 +817,13 @@ async def analyze_image_upload(file: UploadFile = File(...)) -> ImageSourceRespo
         "Unexpected bootstrap response type for image upload.",
     )
 
+@app.post("/api/v1/cxr/classify")
+async def cxr_classify(payload: dict):
+    return run_cxr_classification(payload)
+
+@app.post("/api/v1/cxr/zeroshot")
+async def cxr_zeroshot(payload: dict):
+    return run_cxr_zeroshot(payload)
 
 @app.post("/api/v1/nifti/upload", response_model=NiftiSourceResponse)
 async def analyze_nifti_upload(file: UploadFile = File(...)) -> NiftiSourceResponse:

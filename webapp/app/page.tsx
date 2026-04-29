@@ -2451,6 +2451,61 @@ export default function Page() {
       return;
     }
 
+    if (alias === "cxr" && preAnalysisSource.source_type === "image") {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/cxr/classify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_path: preAnalysisSource.source_path,
+          file_name: preAnalysisSource.file_name,
+          source: preAnalysisSource,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = await response.json();
+      const topLabels = payload.labels.slice(0, 10);
+
+      setStatus(toolReadyStatus(alias, remainder));
+      addMessage({
+        role: "assistant",
+        content:
+          `CXR classification completed for the current image source.\n\n` +
+          topLabels
+            .map((label: any) => `- ${label.name}: ${(label.probability * 100).toFixed(1)}%`)
+            .join("\n"),
+      });
+      return;
+    }
+
+    if (alias === "cxr-zeroshot" && preAnalysisSource.source_type === "image") {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/cxr/zeroshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_path: preAnalysisSource.source_path,
+          file_name: preAnalysisSource.file_name,
+          source: preAnalysisSource,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = await response.json();
+
+      setStatus(toolReadyStatus(alias, remainder));
+      addMessage({
+        role: "assistant",
+        content:
+          `CXR zero-shot classification completed for the current image source.\n\n` +
+          payload.labels
+          .map((label: any) => `- ${label.name}: ${(label.probability * 100).toFixed(1)}%`)
+          .join("\n"),
+      });
+      return;
+    }
+
     // No frontend handler matched — if an analysis is loaded, let the backend chat handler try
     if (analysis) {
       await handleAskAnalysisQuestion(`@${alias}${remainder ? " " + remainder : ""}`, analysis);
