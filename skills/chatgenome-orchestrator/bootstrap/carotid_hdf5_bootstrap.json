@@ -1,0 +1,6 @@
+{
+  "name": "carotid_hdf5_bootstrap",
+  "source_type": "carotid_hdf5",
+  "runner": "carotid_hdf5",
+  "upload_subdir": "carotid_hdf5"
+}

@@ -1,0 +1,66 @@
+{
+  "name": "carotid_plaque_analysis_tool",
+  "entrypoint": "plugins.carotid_plaque_analysis_tool.logic:execute",
+  "description": "Segments carotid plaque and vessel in paired longitudinal/transverse B-mode ultrasound HDF5 files. Returns segmentation masks and RADS vulnerability classification.",
+  "task": "segmentation",
+  "modality": "medical-image",
+  "source": "plugin",
+  "source_types": ["carotid_hdf5"],
+  "initial_for": ["carotid_hdf5"],
+  "routing": {
+    "trigger_keywords": ["carotid", "carotid_plaque", "carotidplaque"],
+    "execution_intents": [
+      "run", "execute", "analyze", "segment", "classify",
+      "실행", "돌려", "분석", "분할", "분류"
+    ],
+    "requires_source_vcf": false,
+    "question_argument": "none",
+    "result_slot": "carotid_result",
+    "execution_mode": "direct_endpoint"
+  },
+  "help": {
+    "summary": "Run carotid plaque segmentation and RADS vulnerability classification on a paired longitudinal/transverse B-mode ultrasound HDF5 file.",
+    "options": [
+      {
+        "name": "cls_threshold",
+        "type": "float",
+        "description": "Decision threshold for high-risk (RADS 3-4) classification.",
+        "default": "0.8"
+      },
+      {
+        "name": "resize_target",
+        "type": "int",
+        "description": "Resize input images to this square resolution before inference.",
+        "default": "512"
+      }
+    ],
+    "examples": [
+      "@carotid",
+      "@carotid help"
+    ],
+    "notes": [
+      "Input HDF5 file must contain 'long_img' and 'trans_img' datasets.",
+      "Output: segmentation masks (0=background, 1=plaque, 2=vessel) and RADS classification (Low-risk RADS 2 / High-risk RADS 3-4).",
+      "GPU recommended (~2s per case); CPU fallback supported (~30s per case)."
+    ]
+  },
+  "direct_chat": {
+    "response_kind": "carotid_chat",
+    "result_kind": "carotid_analysis",
+    "requested_view": "carotid_review",
+    "studio": {
+      "renderer": "carotid_review"
+    },
+    "source_types": ["carotid_hdf5"]
+  },
+  "approval_required": false,
+  "version": "1.0.0",
+  "runtime": {
+    "host_compatible": ["cpu", "gpu"],
+    "preferred_accelerator": "gpu",
+    "requires_gpu": false,
+    "allow_cpu_fallback": true,
+    "estimated_runtime_sec": 30,
+    "notes": "GPU recommended (~2s per case); CPU fallback supported (~30s per case)"
+  }
+}

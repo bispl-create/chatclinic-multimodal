@@ -7,6 +7,7 @@ from typing import Any
 from app.models import (
     AnalysisFacts,
     AnalysisResponse,
+    CarotidSourceResponse,
     DicomSourceResponse,
     FhirSourceResponse,
     ImageSourceResponse,
@@ -153,3 +154,30 @@ def analyze_prs_prep_workflow(
     result = analyze_prs_prep(path, original_name, genome_build=genome_build)
     result.analysis_id = str(uuid.uuid4())
     return result
+
+
+def analyze_carotid_workflow(path: str, original_name: str) -> CarotidSourceResponse:
+    raw = run_tool(
+        "carotid_plaque_analysis_tool",
+        {"source_path": path, "file_name": original_name},
+    )
+    artifacts = raw.get("artifacts") or {}
+    classification = artifacts.get("classification") or {}
+    label = str(classification.get("label", "unknown"))
+    probability = float(classification.get("probability", 0.0))
+    studio_cards = raw.get("studio_cards") or [
+        {"id": "segmentation_masks", "title": "Segmentation Masks", "subtitle": f"{original_name} — longitudinal & transverse", "base_id": "segmentation_masks"},
+        {"id": "classification", "title": "Vulnerability Classification", "subtitle": label, "base_id": "classification"},
+    ]
+    return CarotidSourceResponse(
+        analysis_id=str(uuid.uuid4()),
+        source_carotid_path=path,
+        file_name=original_name,
+        file_kind="CAROTID_HDF5",
+        grounded_summary=str(raw.get("grounded_summary", raw.get("summary", ""))),
+        studio_cards=studio_cards,
+        artifacts=artifacts,
+        draft_answer=str(raw.get("grounded_summary", raw.get("summary", ""))),
+        used_tools=list(raw.get("used_tools", ["carotid_plaque_analysis_tool"])),
+        tool_registry=discover_tools(),
+    )

@@ -16,6 +16,7 @@ export type StudioRendererBuilderArgs = {
   imageAnalysis: any;
   niftiAnalysis: any;
   fhirAnalysis: any;
+  carotidAnalysis: any;
   prsPrepResultForStudio: any;
   qqmanResultForStudio: any;
   samtoolsResultForStudio: any;

@@ -505,6 +505,44 @@ class FhirChatResponse(BaseChatResponse):
     analysis: Optional[FhirSourceResponse] = None
 
 
+class CarotidSegmentationMask(BaseModel):
+    image_data_url: str
+    shape: list[int]
+    unique_labels: list[int]
+
+
+class CarotidClassification(BaseModel):
+    file_name: str
+    cls: int
+    label: str
+    probability: float
+
+
+class CarotidSegmentationArtifact(BaseModel):
+    file_name: str
+    classes: dict[str, str]
+    longitudinal: CarotidSegmentationMask
+    transverse: CarotidSegmentationMask
+
+
+class CarotidSourceResponse(BaseSourceResponse):
+    source_carotid_path: Optional[str] = None
+    file_name: str = ""
+    file_kind: str = "CAROTID_HDF5"
+    grounded_summary: str = ""
+    studio_cards: list[dict[str, Any]] = []
+    artifacts: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = []
+
+
+class CarotidChatRequest(BaseChatRequest):
+    analysis: CarotidSourceResponse
+
+
+class CarotidChatResponse(BaseChatResponse):
+    analysis: Optional[CarotidSourceResponse] = None
+
+
 class PrsPrepBuildCheck(BaseModel):
     inferred_build: str = "unknown"
     build_confidence: str = "low"
@@ -563,7 +601,7 @@ class WorkflowAgentResponse(BaseModel):
 
 
 class SourceReadyResponse(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir", "carotid_hdf5"]
     file_name: str
     source_path: str
     file_kind: Optional[str] = None
@@ -580,6 +618,7 @@ class MultimodalChatRequest(BaseChatRequest):
     image_analysis: Optional[ImageSourceResponse] = None
     nifti_analysis: Optional[NiftiSourceResponse] = None
     fhir_analysis: Optional[FhirSourceResponse] = None
+    carotid_analysis: Optional[CarotidSourceResponse] = None
     primary_source_type: Optional[str] = None
 
 
@@ -595,7 +634,7 @@ class MultimodalChatResponse(BaseChatResponse):
 
 
 class SourceChatRequest(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir", "carotid_hdf5"]
     question: str
     analysis_payload: dict[str, Any]
     history: list[ChatTurn] = []
@@ -603,7 +642,7 @@ class SourceChatRequest(BaseModel):
 
 
 class SourceChatResponse(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir", "carotid_hdf5"]
     answer: str
     citations: list[str]
     used_fallback: bool

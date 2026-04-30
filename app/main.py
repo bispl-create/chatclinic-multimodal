@@ -15,6 +15,9 @@ from app.models import (
     AnalysisChatResponse,
     AnalysisJobResponse,
     AnalysisResponse,
+    CarotidChatRequest,
+    CarotidChatResponse,
+    CarotidSourceResponse,
     DicomChatRequest,
     DicomChatResponse,
     DicomSourceResponse,
@@ -72,6 +75,7 @@ from app.models import (
 )
 from app.services.chat import (
     answer_analysis_chat,
+    answer_carotid_chat,
     answer_dicom_chat,
     answer_fhir_chat,
     answer_image_chat,
@@ -344,6 +348,7 @@ def _run_source_bootstrap(
             "image": "Image intake",
             "nifti": "NIfTI intake",
             "fhir": "FHIR intake",
+            "carotid_hdf5": "Carotid HDF5 intake",
         }.get(source_type, "Bootstrap analysis")
         raise HTTPException(status_code=400, detail=f"{label} failed: {exc}") from exc
 
@@ -838,6 +843,23 @@ async def analyze_fhir_upload(file: UploadFile = File(...)) -> FhirSourceRespons
         FhirSourceResponse,
         "Unexpected bootstrap response type for FHIR upload.",
     )
+
+
+@app.post("/api/v1/carotid/upload", response_model=CarotidSourceResponse)
+async def analyze_carotid_upload(file: UploadFile = File(...)) -> CarotidSourceResponse:
+    filename = file.filename or "carotid.h5"
+    return _typed_bootstrap_upload(
+        "carotid_hdf5",
+        filename,
+        await file.read(),
+        CarotidSourceResponse,
+        "Unexpected bootstrap response type for carotid HDF5 upload.",
+    )
+
+
+@app.post("/api/v1/chat/carotid", response_model=CarotidChatResponse)
+def chat_about_carotid(request: CarotidChatRequest) -> CarotidChatResponse:
+    return answer_carotid_chat(request)
 
 
 @app.post("/api/v1/source/upload", response_model=SourceReadyResponse)
