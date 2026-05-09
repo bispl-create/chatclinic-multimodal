@@ -776,6 +776,7 @@ export function buildCustomStudioRendererRegistry({
   activeStudioView,
   apiBase,
   analysis,
+  parkinsonPlanResultForStudio,
   prsPrepResultForStudio,
   plinkResultForStudio,
   plinkConfig,
@@ -885,5 +886,58 @@ export function buildCustomStudioRendererRegistry({
       analysis ? (
         <section className="notebookPanel studioCanvasPanel"><div className="notebookHeader"><h2>Annotations</h2></div><div className="studioCanvasBody"><div className="oeAnnotationControls"><label className="field"><span>Search gene / consequence / ClinVar</span><input value={annotationSearch} onChange={(event) => { setAnnotationSearch(event.target.value); setSelectedAnnotationIndex(0); }} placeholder="e.g. PALMD, missense_variant, benign" /></label><label className="field"><span>Annotation dropdown</span><select value={safeSelectedIndex} onChange={(event) => setSelectedAnnotationIndex(Number(event.target.value))} disabled={!searchedAnnotations.length}>{searchedAnnotations.length ? searchedAnnotations.map((item: any, index: number) => <option key={`${item.contig}-${item.pos_1based}-${item.rsid}-${index}`} value={index}>{item.gene || "Unknown"} | {item.contig}:{item.pos_1based} | {item.rsid || "no-rsID"} | {item.consequence}</option>) : <option value={0}>No annotations matched the search</option>}</select></label></div>{selectedAnnotation ? <AnnotationDetailCard item={selectedAnnotation} /> : <p className="emptyState">No annotation is available for the current selection.</p>}</div></section>
       ) : null,
+    parkinson_plan: () => {
+      const pk = parkinsonPlanResultForStudio;
+      if (!pk) return null;
+      const finalRx: string[] = Array.isArray(pk.final_prescription) ? pk.final_prescription : [];
+      const auditLog: any[] = Array.isArray(pk.audit_log) ? pk.audit_log : [];
+      const focusAreas: Record<string, string[]> = pk.focus_areas && typeof pk.focus_areas === "object" ? pk.focus_areas : {};
+      const tendencies: any[] = Array.isArray(pk.rag_tendency_by_focus) ? pk.rag_tendency_by_focus : [];
+      return (
+        <section className="notebookPanel studioCanvasPanel">
+          <div className="notebookHeader"><h2>Parkinson Plan</h2><span className="pill">Patient: {pk.patient_id}</span></div>
+          <div className="studioCanvasBody">
+            <div className="resultMetricGrid">
+              <MetricTile label="Final drugs" value={String(finalRx.length)} tone="good" />
+              <MetricTile label="Focus areas" value={String(Object.keys(focusAreas).length)} tone="neutral" />
+              <MetricTile label="RAG tendencies" value={String(tendencies.length)} tone="neutral" />
+              <MetricTile label="Audit entries" value={String(auditLog.length)} tone="neutral" />
+            </div>
+            <div className="resultList">
+              <article className="resultListItem resultListStatic">
+                <strong>Final Prescription</strong>
+                {finalRx.length ? finalRx.map((drug, i) => <span key={i}>{drug}</span>) : <span>No prescription generated.</span>}
+              </article>
+              {Object.entries(focusAreas).length > 0 && (
+                <article className="resultListItem resultListStatic">
+                  <strong>Extracted Focus Areas</strong>
+                  {Object.entries(focusAreas).map(([section, keywords]) => (
+                    <span key={section}><em>{section}:</em> {Array.isArray(keywords) ? keywords.join(", ") : String(keywords)}</span>
+                  ))}
+                </article>
+              )}
+              {tendencies.map((t: any, i: number) => (
+                <article key={i} className="resultListItem resultListStatic">
+                  <strong>Focus: {t.focus ?? `Area ${i + 1}`}</strong>
+                  <span>{typeof t.tendency === "string" ? t.tendency : JSON.stringify(t.tendency)}</span>
+                </article>
+              ))}
+              {auditLog.map((entry: any, i: number) => (
+                <article key={i} className="resultListItem resultListStatic">
+                  <strong>Audit [{i + 1}]</strong>
+                  <span>{typeof entry === "string" ? entry : JSON.stringify(entry)}</span>
+                </article>
+              ))}
+              {pk.draft_plan && (
+                <article className="resultListItem resultListStatic">
+                  <strong>Draft Plan</strong>
+                  <pre className="codeBlock" style={{ whiteSpace: "pre-wrap", fontSize: "0.75rem" }}>{pk.draft_plan}</pre>
+                </article>
+              )}
+            </div>
+          </div>
+        </section>
+      );
+    },
   };
 }

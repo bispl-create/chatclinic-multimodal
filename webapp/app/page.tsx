@@ -626,7 +626,8 @@ type StudioView =
   | "annotations"
   | "image_review"
   | "nifti_review"
-  | "fhir_browser";
+  | "fhir_browser"
+  | "parkinson_plan";
 
 type RohStudioSegment = {
   label: string;
@@ -1324,6 +1325,7 @@ export default function Page() {
   const [directLdblockshowResult, setDirectLdblockshowResult] = useState<AnalysisResponse["ldblockshow_result"] | null>(null);
   const [directQqmanResult, setDirectQqmanResult] = useState<RPlotResponse | null>(null);
   const [directPrsPrepResult, setDirectPrsPrepResult] = useState<PrsPrepResponse | null>(null);
+  const [directParkinsonPlanResult, setDirectParkinsonPlanResult] = useState<any>(null);
   const [latestPrsPrepResult, setLatestPrsPrepResult] = useState<PrsPrepResponse | null>(null);
   const [annotationScope, setAnnotationScope] = useState<"representative" | "all">("representative");
   const [annotationLimit, setAnnotationLimit] = useState("200");
@@ -3004,6 +3006,63 @@ export default function Page() {
       return;
     }
 
+    // @parkinson_plan intercept — works without a genomics source file
+    {
+      const pkMatch = text.match(/^@parkinson_plan(?:\s+([\s\S]*))?$/i);
+      if (pkMatch) {
+        addMessage({ role: "user", content: text });
+        setComposerText("");
+        const remainder = (pkMatch[1] ?? "").trim();
+        const parseKV = (raw: string, key: string): string => {
+          const m = raw.match(new RegExp(`${key}\\s*[=:]\\s*"([^"]*)"`, "i")) ||
+                    raw.match(new RegExp(`${key}\\s*[=:]\\s*([^\\n]+)`, "i"));
+          return m ? m[1].trim() : "";
+        };
+        const payload: Record<string, any> = {
+          subjective: parseKV(remainder, "subjective"),
+          objective: parseKV(remainder, "objective"),
+          assessment: parseKV(remainder, "assessment"),
+          patient_id: parseKV(remainder, "patient_id") || "unknown",
+          threshold: parseFloat(parseKV(remainder, "threshold") || "0.7"),
+          retrieve_patients: parseInt(parseKV(remainder, "retrieve_patients") || "7", 10),
+        };
+        if (!payload.subjective) {
+          addMessage({
+            role: "assistant",
+            content:
+              "`@parkinson_plan`을 실행하려면 SOAP 노트를 입력해 주세요.\n\n예시:\n```\n@parkinson_plan\nsubjective: 손 떨림과 보행 장애가 3개월째 지속됨\nobjective: UPDRS 25점\nassessment: Parkinson's disease stage 2\n```",
+          });
+          return;
+        }
+        setStatus("Running Parkinson plan...");
+        try {
+          const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/parkinson/plan`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error(await response.text());
+          const result = await response.json();
+          setDirectParkinsonPlanResult(result);
+          activateStudioFromPayload({ requested_view: "parkinson_plan" }, "parkinson_plan", undefined);
+          setStatus("Parkinson plan ready");
+          addMessage({
+            role: "assistant",
+            content:
+              `Enhanced RAG 처방 계획이 완료되었습니다 (환자 ID: \`${result.patient_id}\`).\n\n` +
+              `- 최종 처방 약물: ${result.final_prescription?.length ?? 0}개\n` +
+              `- 집중 분석 영역: ${Object.keys(result.focus_areas ?? {}).join(", ") || "없음"}\n\n` +
+              "Studio 카드에서 상세 처방 내용을 확인하세요.",
+          });
+        } catch (caught) {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          setStatus("Parkinson plan failed");
+          addMessage({ role: "assistant", content: `\`@parkinson_plan\` 실행 중 오류가 발생했습니다: ${message}` });
+        }
+        return;
+      }
+    }
+
     if (!hasAttachedSource) {
       addMessage({ role: "user", content: text });
       addMessage({
@@ -4252,6 +4311,7 @@ export default function Page() {
   const samtoolsResultForStudio = rawQcAnalysis?.samtools_result ?? directSamtoolsResult;
   const qqmanResultForStudio = summaryStatsAnalysis?.qqman_result ?? directQqmanResult;
   const prsPrepResultForStudio = summaryStatsAnalysis?.prs_prep_result ?? directPrsPrepResult ?? null;
+  const parkinsonPlanResultForStudio = directParkinsonPlanResult ?? null;
   const hasStudioState = Boolean(
     analysis ||
       rawQcAnalysis ||
@@ -4268,7 +4328,8 @@ export default function Page() {
       plinkResultForStudio ||
       liftoverResultForStudio ||
       ldblockshowResultForStudio ||
-      samtoolsResultForStudio,
+      samtoolsResultForStudio ||
+      parkinsonPlanResultForStudio,
   );
   // Multimodal: accumulate studio cards from ALL active sources.
   const studioCards: Array<{ id: StudioView; title: string; subtitle: string }> = (() => {
@@ -4439,6 +4500,7 @@ export default function Page() {
       if (qqmanResultForStudio) cards.push({ id: "qqman" as StudioView, title: "qqman Plots", subtitle: "Manhattan and QQ visualization" });
       if (prsPrepResultForStudio) cards.push({ id: "prs_prep" as StudioView, title: "PRS Prep Review", subtitle: "Build check, harmonization, and score-file readiness" });
     }
+    if (parkinsonPlanResultForStudio) cards.push({ id: "parkinson_plan" as StudioView, title: "Parkinson Plan", subtitle: "Enhanced RAG medication prescription" });
 
     return cards;
   })();
@@ -4461,6 +4523,7 @@ export default function Page() {
     plinkResultForStudio,
     liftoverResultForStudio,
     ldblockshowResultForStudio,
+    parkinsonPlanResultForStudio,
     summaryStatsGridRows,
     summaryStatsRowsLoading,
     summaryStatsHasMore,

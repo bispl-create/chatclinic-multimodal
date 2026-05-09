@@ -69,6 +69,8 @@ from app.models import (
     ToolInfo,
     ToolRunRequest,
     ToolRunResponse,
+    ParkinsonPlanRequest,
+    ParkinsonPlanResponse,
 )
 from app.services.chat import (
     answer_analysis_chat,
@@ -886,6 +888,16 @@ async def run_prs_prep(request: PrsPrepRequest) -> PrsPrepResponse:
         request.model_dump(),
         PrsPrepResponse,
         result_key="prs_prep_result",
+    )
+
+
+@app.post("/api/v1/parkinson/plan", response_model=ParkinsonPlanResponse)
+def run_parkinson_plan(request: ParkinsonPlanRequest) -> ParkinsonPlanResponse:
+    """Enhanced RAG medication planning for a single Parkinson's patient (non-MIMIC, SOAP-based)."""
+    return _run_registered_tool_model(
+        "parkinson_plan_tool",
+        request.model_dump(),
+        ParkinsonPlanResponse,
     )
 
 
