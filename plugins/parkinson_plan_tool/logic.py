@@ -14,38 +14,101 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Path setup: inject parkinson venv site-packages + parkinson source dir
 # so that recommend_plan / prompt (and their deps) are importable.
 # ---------------------------------------------------------------------------
-_PARKINSON_ROOT = "/mnt/data1/intern/chaeyounghuh/base_code/parkinson_plan_prediction"
-_PARKINSON_VENV_SITE = os.path.join(
-    _PARKINSON_ROOT, ".venv_parkinson", "lib", "python3.10", "site-packages"
-)
-_VECTOR_DB_PATH = os.path.join(
-    _PARKINSON_ROOT, "vector_db", "parkinson_openr1_train_replaced_soap_faiss_index"
-)
-_BM25_METADATA = os.path.join(
-    _PARKINSON_ROOT, "data", "parkinson_openr1_train_replaced_soap.json"
-)
-_MEDICINE_INFO = "/mnt/data1/intern/chaeyounghuh/base_code/data/medicine_info_gpt40mini_updated4.json"
+_DEFAULT_PARKINSON_ROOT = "/mnt/data1/hyunmin/parkinson_plan_prediction"
 
-for _p in (_PARKINSON_VENV_SITE, _PARKINSON_ROOT):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
-# ---------------------------------------------------------------------------
-# Import parkinson modules and patch module-level relative paths.
-# Must happen after sys.path is set.
-# ---------------------------------------------------------------------------
-import recommend_plan as _rp  # noqa: E402
+def _parkinson_root() -> str:
+    return os.environ.get("PARKINSON_ROOT", _DEFAULT_PARKINSON_ROOT)
 
-_rp.BM25_METADATA = _BM25_METADATA
-_rp.MEDICINE_INFORMATION = _MEDICINE_INFO
 
-from recommend_plan import rag_w_similar_patients_plan, preprocess_user_input  # noqa: E402
-from prompt import LLM_recommend_plan_answer_with_retrieved_plans, parse_prescription_to_list  # noqa: E402
+def _parkinson_source_dir() -> str:
+    root = _parkinson_root()
+    return os.environ.get("PARKINSON_SOURCE_DIR", root)
+
+
+def _parkinson_venv_site() -> str:
+    root = _parkinson_root()
+    return os.environ.get(
+        "PARKINSON_VENV_SITE",
+        os.path.join(root, ".venv_parkinson", "lib", "python3.10", "site-packages"),
+    )
+
+
+def _vector_db_path() -> str:
+    root = _parkinson_root()
+    return os.environ.get(
+        "PARKINSON_VECTOR_DB_PATH",
+        os.path.join(root, "vector_db", "parkinson_openr1_train_replaced_soap_faiss_index"),
+    )
+
+
+def _bm25_metadata_path() -> str:
+    root = _parkinson_root()
+    return os.environ.get(
+        "PARKINSON_BM25_METADATA",
+        os.path.join(root, "data", "parkinson_openr1_train_replaced_soap.json"),
+    )
+
+
+def _medicine_info_path() -> str:
+    root = _parkinson_root()
+    return os.environ.get(
+        "PARKINSON_MEDICINE_INFO",
+        os.path.join(root, "data", "medicine_info_gpt40mini_updated4.json"),
+    )
+
+
+def _load_parkinson_modules():
+    source_dir = _parkinson_source_dir()
+    venv_site = _parkinson_venv_site()
+    for path in (venv_site, source_dir):
+        if Path(path).exists() and path not in sys.path:
+            sys.path.insert(0, path)
+
+    missing = [
+        ("PARKINSON_SOURCE_DIR", source_dir, "recommend_plan.py / prompt.py"),
+        ("PARKINSON_VECTOR_DB_PATH", _vector_db_path(), "FAISS vector DB"),
+        ("PARKINSON_BM25_METADATA", _bm25_metadata_path(), "BM25 metadata JSON"),
+        ("PARKINSON_MEDICINE_INFO", _medicine_info_path(), "medicine info JSON"),
+    ]
+    missing = [f"{env_name}={path} ({label})" for env_name, path, label in missing if not Path(path).exists()]
+    if missing:
+        raise FileNotFoundError(
+            "Parkinson plan dependency paths are missing. Set PARKINSON_ROOT or the specific "
+            "PARKINSON_* path variables. Missing: " + "; ".join(missing)
+        )
+
+    try:
+        import recommend_plan as rp
+        from recommend_plan import rag_w_similar_patients_plan, preprocess_user_input
+        from prompt import (
+            LLM_recommend_plan_answer_with_retrieved_plans,
+            call_LLM_doctor_summary,
+            format_reflective_qa_for_doctor_summary,
+            parse_prescription_to_list,
+        )
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "Could not import Parkinson source modules. Ensure PARKINSON_SOURCE_DIR points to the "
+            "directory containing recommend_plan.py and prompt.py, and install that project's dependencies."
+        ) from exc
+
+    rp.BM25_METADATA = _bm25_metadata_path()
+    rp.MEDICINE_INFORMATION = _medicine_info_path()
+    return (
+        rag_w_similar_patients_plan,
+        preprocess_user_input,
+        LLM_recommend_plan_answer_with_retrieved_plans,
+        call_LLM_doctor_summary,
+        format_reflective_qa_for_doctor_summary,
+        parse_prescription_to_list,
+    )
 
 # ---------------------------------------------------------------------------
 # Lazy LLM singleton
@@ -85,7 +148,7 @@ def execute(payload: dict) -> dict:
       recent_visit_history  (list) – list of visit dicts; each has 'prescription' (list[str])
       patient_id            (str)  – patient identifier (used to exclude self from RAG)
       threshold             (float)– FAISS similarity threshold  (default 0.7)
-      retrieve_patients     (int)  – top-k per focus query       (default 7)
+      retrieve_patients     (int)  – top-k per focus query       (default 4)
     """
     subjective = payload.get("subjective") or ""
     objective = payload.get("objective") or ""
@@ -93,8 +156,16 @@ def execute(payload: dict) -> dict:
     patient_id = payload.get("patient_id", "unknown")
     recent_visit_history = payload.get("recent_visit_history") or []
     threshold = float(payload.get("threshold", 0.7))
-    retrieve_patients = int(payload.get("retrieve_patients", 7))
+    retrieve_patients = int(payload.get("retrieve_patients", 4))
 
+    (
+        rag_w_similar_patients_plan,
+        preprocess_user_input,
+        LLM_recommend_plan_answer_with_retrieved_plans,
+        call_LLM_doctor_summary,
+        format_reflective_qa_for_doctor_summary,
+        parse_prescription_to_list,
+    ) = _load_parkinson_modules()
     llm = _get_llm()
 
     input_full_text = preprocess_user_input(subjective, objective, assessment)
@@ -128,7 +199,7 @@ def execute(payload: dict) -> dict:
         patient_id,
         llm,
         threshold,
-        _VECTOR_DB_PATH,
+        _vector_db_path(),
         enhanced_rag=True,
         retrieve_patients=retrieve_patients,
         active_history=active_history,
@@ -189,6 +260,25 @@ def execute(payload: dict) -> dict:
         parsed_draft = parse_prescription_to_list(draft_plan) if isinstance(draft_plan, str) else []
         final_prescription = [str(d).strip() for d in parsed_draft if d and str(d).strip()]
 
+    patient_state = f"S: {subjective or 'None'} | O: {objective or 'None'} | A: {assessment or 'None'}"
+    clinical_evidence = rag_tendency_by_focus
+    if isinstance(verified_output, dict):
+        reflective_question = verified_output.get("reflective_question")
+        reflective_answer = verified_output.get("reflective_answer")
+        if reflective_question or reflective_answer:
+            reflective_evidence = format_reflective_qa_for_doctor_summary(reflective_question, reflective_answer)
+            if reflective_evidence:
+                clinical_evidence = reflective_evidence
+
+    doctor_summary = call_LLM_doctor_summary(
+        patient_state=patient_state,
+        initial_prescription=draft_plan,
+        rag_tendency_by_focus=clinical_evidence,
+        audit_log=audit_log,
+        final_answer_list={"final_prescription": final_prescription},
+        llm=llm,
+    )
+
     return {
         "patient_id": patient_id,
         "draft_plan": draft_plan if isinstance(draft_plan, str) else str(draft_plan),
@@ -196,6 +286,7 @@ def execute(payload: dict) -> dict:
         "focus_areas": focus_areas,
         "rag_tendency_by_focus": rag_tendency_by_focus,
         "audit_log": audit_log,
+        "doctor_summary": doctor_summary,
         "summary": (
             f"Enhanced RAG plan for patient {patient_id}: "
             f"{len(final_prescription)} drug(s) in final prescription."
