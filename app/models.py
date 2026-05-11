@@ -934,7 +934,7 @@ class ParkinsonPlanRequest(BaseModel):
     patient_id: str = "unknown"
     recent_visit_history: list[ParkinsonVisitHistory] = []
     threshold: float = 0.7
-    retrieve_patients: int = 7
+    retrieve_patients: int = 4
 
 
 class ParkinsonPlanResponse(BaseModel):
@@ -944,4 +944,5 @@ class ParkinsonPlanResponse(BaseModel):
     focus_areas: dict[str, Any]
     rag_tendency_by_focus: list[Any]
     audit_log: list[Any]
+    doctor_summary: str = ""
     summary: str

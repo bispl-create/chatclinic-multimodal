@@ -93,6 +93,7 @@ from app.services.source_bootstrap import (
     run_bootstrap_analysis,
 )
 from app.services.source_registry import (
+    SourceRegistry,
     detect_source_registration,
     infer_source_file_kind,
     source_bootstrap_type,
@@ -137,6 +138,8 @@ app.add_middleware(
         "http://localhost:3002",
         "http://127.0.0.1:3003",
         "http://localhost:3003",
+        "http://127.0.0.1:3004",
+        "http://localhost:3004",
         "http://127.0.0.1:4173",
         "http://localhost:4173",
     ],
@@ -302,6 +305,15 @@ def _safe_fastqc_artifact_path(path_str: str) -> Path:
 
 
 def _resolve_source_upload(filename: str, expected_source_type: str | None = None) -> tuple[str, str]:
+    if expected_source_type is not None:
+        registration = SourceRegistry.get(expected_source_type)
+        if registration is not None:
+            lowered = filename.strip().lower()
+            for suffix in registration.get("suffixes") or []:
+                suffix_text = str(suffix).strip().lower()
+                if suffix_text and lowered.endswith(suffix_text):
+                    return expected_source_type, filename
+
     detected = detect_source_registration(filename)
     if detected is None:
         # When a dedicated upload endpoint already knows the source type,
