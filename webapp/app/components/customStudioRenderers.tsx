@@ -893,6 +893,7 @@ export function buildCustomStudioRendererRegistry({
       const auditLog: any[] = Array.isArray(pk.audit_log) ? pk.audit_log : [];
       const focusAreas: Record<string, string[]> = pk.focus_areas && typeof pk.focus_areas === "object" ? pk.focus_areas : {};
       const tendencies: any[] = Array.isArray(pk.rag_tendency_by_focus) ? pk.rag_tendency_by_focus : [];
+      const doctorSummary = typeof pk.doctor_summary === "string" ? pk.doctor_summary.trim() : "";
       return (
         <section className="notebookPanel studioCanvasPanel">
           <div className="notebookHeader"><h2>Parkinson Plan</h2><span className="pill">Patient: {pk.patient_id}</span></div>
@@ -908,6 +909,12 @@ export function buildCustomStudioRendererRegistry({
                 <strong>Final Prescription</strong>
                 {finalRx.length ? finalRx.map((drug, i) => <span key={i}>{drug}</span>) : <span>No prescription generated.</span>}
               </article>
+              {doctorSummary && (
+                <article className="resultListItem resultListStatic">
+                  <strong>Doctor Summary</strong>
+                  <pre className="codeBlock" style={{ whiteSpace: "pre-wrap", fontSize: "0.75rem" }}>{doctorSummary}</pre>
+                </article>
+              )}
               {Object.entries(focusAreas).length > 0 && (
                 <article className="resultListItem resultListStatic">
                   <strong>Extracted Focus Areas</strong>
