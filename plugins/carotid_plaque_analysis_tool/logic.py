@@ -342,7 +342,12 @@ _MASK_COLORS = {
     2: (50, 100, 220),   # vessel — blue
 }
 
-_DEFAULT_WEIGHTS = Path(__file__).resolve().parent / "weights" / "best.pth"
+_DEFAULT_WEIGHTS = (
+    Path(__file__).resolve().parents[2]
+    / "ckpt_and_file"
+    / "carotid_plaque_analysis_tool"
+    / "best.pth"
+)
 
 
 def _mask_to_data_url(mask) -> str:
