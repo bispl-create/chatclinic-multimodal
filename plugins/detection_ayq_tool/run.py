@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,13 +20,29 @@ except Exception:
     Image = None
 
 PLUGIN_DIR = Path(__file__).resolve().parent
-DEFAULT_AYQ_ROOT = (PLUGIN_DIR.parents[2] / "AYQ").resolve()
+REPO_ROOT = PLUGIN_DIR.parents[1]
+DEFAULT_AYQ_ROOT = (PLUGIN_DIR / "ayq_runtime").resolve()
+LEGACY_AYQ_ROOT = (PLUGIN_DIR.parents[2] / "AYQ").resolve()
+DEFAULT_AYQ_ENV_FILE = (REPO_ROOT / "ayq_requirements.yml").resolve()
 DEFAULT_CONFIG_PATH = (PLUGIN_DIR / "configs" / "dino_ayq_config.py").resolve()
-DEFAULT_WEIGHTS_PATH = (PLUGIN_DIR / "checkpoints" / "dino_ayq.pth").resolve()
+DEFAULT_WEIGHTS_PATH = (REPO_ROOT / "ckpt_and_file" / "detection_ayq_tool" / "dino_ayq.pth").resolve()
 DEFAULT_TARGET_CLASS = "Aortic_enlargement_in_CXR"
 DEFAULT_PRED_SCORE_THR = 0.9
 DEFAULT_MAX_DETECTIONS = 20
 SUPPORTED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+REQUIRED_AYQ_MODULES = [
+    "torch",
+    "mmengine",
+    "mmcv",
+    "mmdet",
+    "pycocotools",
+    "scipy",
+    "shapely",
+    "terminaltables",
+    "PIL",
+    "cv2",
+    "numpy",
+]
 
 CLASS_NAMES = [
     "Aortic enlargement in CXR",
@@ -285,26 +302,287 @@ def _available_target_classes(ayq_root: Path) -> list[str]:
     return sorted(path.stem for path in embedding_dir.glob("*.npy"))
 
 
-def _select_device(execution_context: dict[str, Any]) -> str:
+def _resolve_ayq_root() -> Path:
+    override = str(os.getenv("AYQ_ROOT", "")).strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    if (DEFAULT_AYQ_ROOT / "mmdet").exists():
+        return DEFAULT_AYQ_ROOT
+    return LEGACY_AYQ_ROOT
+
+
+def _candidate_python_executables() -> list[Path]:
+    candidates: list[Path] = []
+
+    override = str(os.getenv("AYQ_PYTHON_EXECUTABLE", "")).strip()
+    if override:
+        candidates.append(Path(override).expanduser())
+
+    current = Path(sys.executable).expanduser()
+    candidates.append(current)
+    if current.parent.name == "bin" and current.parent.parent.parent.name == "envs":
+        candidates.append(current.parent.parent.parent / "ayq" / "bin" / "python")
+
+    conda_prefix = str(os.getenv("CONDA_PREFIX", "")).strip()
+    if conda_prefix:
+        prefix = Path(conda_prefix).expanduser()
+        if prefix.parent.name == "envs":
+            candidates.append(prefix.parent / "ayq" / "bin" / "python")
+
+    for root in [Path.home() / "miniconda3", Path.home() / "anaconda3", Path("/mnt/data1/hyunmin/conda")]:
+        candidates.append(root / "envs" / "ayq" / "bin" / "python")
+
+    path_python = shutil.which("python")
+    if path_python:
+        candidates.append(Path(path_python))
+
+    return [Path(path).resolve() for path in _dedupe_preserve_order(str(path) for path in candidates)]
+
+
+def _python_has_required_modules(python_executable: Path, ayq_root: Path) -> tuple[bool, list[str]]:
+    if not python_executable.exists():
+        return False, REQUIRED_AYQ_MODULES
+
+    check_code = (
+        "import importlib.util, json; "
+        f"mods={REQUIRED_AYQ_MODULES!r}; "
+        "missing=[m for m in mods if importlib.util.find_spec(m) is None]; "
+        "print(json.dumps(missing))"
+    )
+    env = _build_pythonpath_env(ayq_root, os.environ.copy())
+    completed = subprocess.run(
+        [str(python_executable), "-c", check_code],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return False, REQUIRED_AYQ_MODULES
+    try:
+        missing = json.loads(completed.stdout.strip() or "[]")
+    except Exception:
+        return False, REQUIRED_AYQ_MODULES
+    return not missing, [str(item) for item in missing]
+
+
+def _ayq_env_file() -> Path:
+    override = str(os.getenv("AYQ_REQUIREMENTS_FILE", "")).strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return DEFAULT_AYQ_ENV_FILE
+
+
+def _conda_executable() -> Path | None:
+    candidates: list[Path] = []
+    for raw in [os.getenv("CONDA_EXE"), shutil.which("conda")]:
+        if raw:
+            candidates.append(Path(raw).expanduser())
+    candidates.extend(
+        [
+            Path.home() / "miniconda3" / "bin" / "conda",
+            Path.home() / "anaconda3" / "bin" / "conda",
+        ]
+    )
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.exists():
+            return resolved
+    return None
+
+
+def _conda_env_exists(conda_executable: Path, env_name: str) -> bool:
+    completed = subprocess.run(
+        [str(conda_executable), "env", "list", "--json"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return False
+    try:
+        envs = json.loads(completed.stdout).get("envs", [])
+    except Exception:
+        return False
+    return any(Path(env).name == env_name for env in envs)
+
+
+def _auto_install_enabled() -> bool:
+    raw = str(os.getenv("AYQ_AUTO_INSTALL", "1")).strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _install_ayq_environment(ayq_root: Path) -> str:
+    if not _auto_install_enabled():
+        return "AYQ_AUTO_INSTALL is disabled."
+
+    env_file = _ayq_env_file()
+    if not env_file.exists():
+        return f"AYQ environment file was not found: {env_file}"
+
+    conda_executable = _conda_executable()
+    if conda_executable is None:
+        return "conda executable was not found."
+
+    lock_path = REPO_ROOT / ".ayq_env_install.lock"
+    timeout_sec = int(os.getenv("AYQ_ENV_INSTALL_TIMEOUT_SEC", "3600"))
+    install_env = os.environ.copy()
+    install_env.setdefault("CONDA_NO_PLUGINS", "true")
+
+    with lock_path.open("w", encoding="utf-8") as lock_file:
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        except Exception:
+            pass
+
+        if any(_python_has_required_modules(candidate, ayq_root)[0] for candidate in _candidate_python_executables()):
+            return "AYQ environment became available while waiting for the install lock."
+
+        if _conda_env_exists(conda_executable, "ayq"):
+            command = [str(conda_executable), "env", "update", "-n", "ayq", "-f", str(env_file)]
+        else:
+            command = [str(conda_executable), "env", "create", "-f", str(env_file)]
+
+        completed = subprocess.run(
+            command,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            env=install_env,
+            timeout=timeout_sec,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return f"Installed AYQ environment using {' '.join(command)}"
+        return (
+            "AYQ environment auto-install failed.\n"
+            f"command={' '.join(command)}\n"
+            f"returncode={completed.returncode}\n"
+            f"stdout={completed.stdout}\n"
+            f"stderr={completed.stderr}"
+        )
+
+
+def _resolve_python_executable(ayq_root: Path) -> Path:
+    checked: list[str] = []
+    missing_by_python: list[str] = []
+
+    for candidate in _candidate_python_executables():
+        if str(candidate) in checked:
+            continue
+        checked.append(str(candidate))
+        ok, missing = _python_has_required_modules(candidate, ayq_root)
+        if ok:
+            return candidate
+        if candidate.exists():
+            missing_by_python.append(f"{candidate}: missing {', '.join(missing)}")
+
+    install_message = _install_ayq_environment(ayq_root)
+    retry_checked: list[str] = []
+    for candidate in _candidate_python_executables():
+        if str(candidate) in retry_checked:
+            continue
+        retry_checked.append(str(candidate))
+        ok, missing = _python_has_required_modules(candidate, ayq_root)
+        if ok:
+            return candidate
+        if candidate.exists():
+            missing_by_python.append(f"{candidate}: missing {', '.join(missing)}")
+
+    unique_missing = _dedupe_preserve_order(missing_by_python)
+    details = "\n".join(unique_missing) if unique_missing else "No AYQ-capable Python executable was found."
+    raise RuntimeError(
+        "Could not find a Python executable with the AYQ runtime dependencies installed. "
+        f"The tool tried to install/update `ayq` from `{_ayq_env_file()}`.\n"
+        f"auto_install_result={install_message}\n"
+        "Create a conda env named `ayq` or set AYQ_PYTHON_EXECUTABLE if you need a custom env.\n"
+        f"{details}"
+    )
+
+
+def _build_pythonpath_env(ayq_root: Path, env: dict[str, str]) -> dict[str, str]:
+    existing_pythonpath = str(env.get("PYTHONPATH", "")).strip()
+    pythonpath_parts = [str(ayq_root)]
+    if existing_pythonpath:
+        pythonpath_parts.append(existing_pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+    return env
+
+
+def _python_reports_cuda_available(python_executable: Path, ayq_root: Path) -> bool:
+    check_code = (
+        "import torch; "
+        "print('1' if torch.cuda.is_available() and torch.cuda.device_count() > 0 else '0')"
+    )
+    completed = subprocess.run(
+        [str(python_executable), "-c", check_code],
+        capture_output=True,
+        text=True,
+        env=_build_pythonpath_env(ayq_root, os.environ.copy()),
+        timeout=30,
+        check=False,
+    )
+    return completed.returncode == 0 and completed.stdout.strip() == "1"
+
+
+def _best_cuda_visible_device() -> str | None:
+    completed = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-gpu=index,memory.free",
+            "--format=csv,noheader,nounits",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+
+    best_index: str | None = None
+    best_free = -1
+    for line in completed.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 2:
+            continue
+        try:
+            free_memory = int(parts[1])
+        except ValueError:
+            continue
+        if free_memory > best_free:
+            best_index = parts[0]
+            best_free = free_memory
+    return best_index
+
+
+def _select_device(execution_context: dict[str, Any], python_executable: Path, ayq_root: Path) -> str:
     selected_accelerator = str((execution_context.get("selected_accelerator") or "")).strip().lower()
     if selected_accelerator == "cpu":
         return "cpu"
     override = str(os.getenv("AYQ_DEVICE", "")).strip()
     if override:
         return override
-    return "cuda:0"
+    if _python_reports_cuda_available(python_executable, ayq_root):
+        return "cuda:0"
+    return "cpu"
 
 
 def _build_env(ayq_root: Path, device: str) -> dict[str, str]:
-    env = os.environ.copy()
-    existing_pythonpath = str(env.get("PYTHONPATH", "")).strip()
-    pythonpath_parts = [str(ayq_root)]
-    if existing_pythonpath:
-        pythonpath_parts.append(existing_pythonpath)
-    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+    env = _build_pythonpath_env(ayq_root, os.environ.copy())
 
     if device.startswith("cuda"):
-        env.setdefault("CUDA_VISIBLE_DEVICES", str(os.getenv("AYQ_CUDA_VISIBLE_DEVICES", "3")))
+        if os.getenv("AYQ_CUDA_VISIBLE_DEVICES"):
+            env["CUDA_VISIBLE_DEVICES"] = str(os.getenv("AYQ_CUDA_VISIBLE_DEVICES"))
+        elif not env.get("CUDA_VISIBLE_DEVICES"):
+            best_device = _best_cuda_visible_device()
+            if best_device:
+                env["CUDA_VISIBLE_DEVICES"] = best_device
     else:
         env.pop("CUDA_VISIBLE_DEVICES", None)
     return env
@@ -522,13 +800,14 @@ def _format_summary(
     score_threshold: float,
     high_confidence: list[dict[str, Any]],
     visualization_url: str | None = None,
+    visualization_data_url: str | None = None,
 ) -> str:
     image_markdown = ""
-    if visualization_url:
+    preview_src = visualization_data_url or visualization_url
+    if preview_src:
         image_markdown = (
             f"\n\nDetection preview:\n\n"
-            f"![AYQ detection result]({visualization_url})\n\n"
-            # f"Direct link: {visualization_url}"
+            f"![AYQ detection result]({preview_src})\n\n"
         )
 
     if high_confidence:
@@ -556,24 +835,14 @@ def main() -> int:
     payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
     execution_context = dict(payload.get("execution_context") or {})
 
-    ayq_root = Path(os.getenv("AYQ_ROOT", str(DEFAULT_AYQ_ROOT))).expanduser().resolve()
+    ayq_root = _resolve_ayq_root()
     if not ayq_root.exists():
         raise RuntimeError(
-            f"AYQ root was not found at `{ayq_root}`. Set AYQ_ROOT to the AYQ repository path before running this tool."
+            f"AYQ root was not found at `{ayq_root}`. Expected the bundled runtime at `{DEFAULT_AYQ_ROOT}`."
         )
 
     config_path = DEFAULT_CONFIG_PATH
     weights_path = DEFAULT_WEIGHTS_PATH
-    python_executable = Path(os.getenv("AYQ_PYTHON_EXECUTABLE", sys.executable)).expanduser().resolve()
-    if not config_path.exists():
-        raise RuntimeError(f"Missing config file: {config_path}")
-    if not weights_path.exists():
-        raise RuntimeError(f"Missing checkpoint file: {weights_path}")
-    if not python_executable.exists():
-        raise RuntimeError(
-            f"AYQ python executable was not found: {python_executable}. "
-            "Set AYQ_PYTHON_EXECUTABLE to a valid Python interpreter with torch/mmcv/mmengine installed."
-        )
 
     image_candidates = _collect_image_candidates(payload)
     if not image_candidates:
@@ -596,12 +865,18 @@ def main() -> int:
         Path(args.output).write_text(json.dumps(selection_result, ensure_ascii=False, indent=2), encoding="utf-8")
         return 0
 
+    if not config_path.exists():
+        raise RuntimeError(f"Missing config file: {config_path}")
+    if not weights_path.exists():
+        raise RuntimeError(f"Missing checkpoint file: {weights_path}")
+    python_executable = _resolve_python_executable(ayq_root)
+
     run_id = uuid4().hex[:12]
     run_dir = (PLUGIN_DIR / "runtime_outputs" / run_id).resolve()
     out_dir = run_dir / "outputs"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    device = _select_device(execution_context)
+    device = _select_device(execution_context, python_executable, ayq_root)
     env = _build_env(ayq_root, device)
     command = _build_command(
         python_executable=python_executable,
@@ -679,6 +954,7 @@ def main() -> int:
         score_threshold=score_threshold,
         high_confidence=high_confidence,
         visualization_url=visualization_url,
+        visualization_data_url=visualization_data_url,
     )
 
     findings = [
@@ -706,6 +982,11 @@ def main() -> int:
                 "impression": impression,
             },
             "detections": selected,
+            "visualization": {
+                "path": str(preview_visualization_path) if preview_visualization_path else None,
+                "url": visualization_url,
+                "data_url": visualization_data_url,
+            },
         },
         "provenance": {
             "tool": "detection_ayq_tool",

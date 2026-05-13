@@ -27,7 +27,7 @@ plugins/detection_ayq_tool/
 │   ├── mmdet/                   # Modified MMDetection Toolbox
 │   └── text_embeddings/         # Precomputed text embeddings
 ├── checkpoints/
-│   └── dino_ayq.pth             # Detector checkpoint (DINO+AYQ)
+│   └── dino_ayq_ckpt_here.txt   # Legacy placeholder
 ├── configs/
 │   └── dino_ayq_config.py       # Detector config file
 ├── demo/
@@ -36,7 +36,7 @@ plugins/detection_ayq_tool/
 ├── samples/                     # Sample images
 └── scripts/
 ```
-Download the `dino_ayq.pth` checkpoint from [this Google Drive link](https://drive.google.com/file/d/1YQVADnQL9pSTls9SuJn9ihEESVOZedUr/view?usp=sharing) and place it in the `plugins/detection_ayq_tool/checkpoints/` folder.
+Download the `dino_ayq.pth` checkpoint from [this Google Drive link](https://drive.google.com/file/d/1YQVADnQL9pSTls9SuJn9ihEESVOZedUr/view?usp=sharing) and place it at `./ckpt_and_file/detection_ayq_tool/dino_ayq.pth`.
 
 ## Example Usage
 
@@ -45,31 +45,21 @@ Download the `dino_ayq.pth` checkpoint from [this Google Drive link](https://dri
 ## Environment Setup: Conda Environment
 Set up the conda environment for the AYQ Detection plugin.
 ```bash
-# Create conda environment
-conda create -n ayq python=3.10 -y
+conda env create -f ayq_requirements.yml
 conda activate ayq
-pip install -U pip "setuptools<81" wheel
-pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu118
-
-pip install -U openmim
-mim install "mmengine==0.10.7"
-mim install "mmcv==2.1.0"
-
-pip install -r /path/to/chatclinic/plugins/detection_ayq_tool/requirements.txt
-pip install 'numpy<2'
-pip install "opencv-python==4.11.0.86"
 ```
 
-## Environment Setup: Environment Variables
-Set environment variables like below.
+If the `ayq` environment has not been created yet, ChatClinic will also try to create or update it automatically from `./ayq_requirements.yml` the first time `detection_ayq_tool` needs to run inference.
+Set `AYQ_AUTO_INSTALL=0` to disable this automatic install behavior.
+
+## Environment Setup: Runtime Selection
+The plugin now resolves the bundled `ayq_runtime` folder automatically and selects GPU when CUDA is available. Environment variables are only needed when you want to override the default runtime, Python environment, or device.
 ```bash
-# Inside backend terminal, force AYQ Detection plugin to use the ayq conda environment.
-...
+# Optional overrides.
 export AYQ_PYTHON_EXECUTABLE="/path/to/anaconda3/envs/ayq/bin/python"
 export AYQ_DEVICE=cpu
-source plugins/detection_ayq_tool/scripts/export_local_runtime_env.sh
 uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload
 ```
 
 > **Note:**
-> We have modified the entrypoint to use the separate conda environment directly, which is why we are setting these environment variables.
+> If `AYQ_PYTHON_EXECUTABLE` is not set, the plugin searches the current Python environment first and then common `ayq` conda environment locations. The selected Python must have torch, mmengine, mmcv, mmdet, pycocotools, scipy, shapely, terminaltables, Pillow, OpenCV, and numpy installed.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   buildStudioRendererRegistry,
@@ -820,7 +820,17 @@ function AnnotationDetailCard({ item }: { item: VariantAnnotation }) {
 function MarkdownAnswer({ content }: { content: string }) {
   return (
     <div className="markdownAnswer">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(value) => {
+          if (/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(value)) {
+            return value;
+          }
+          return defaultUrlTransform(value);
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -1273,7 +1283,7 @@ function renderUserPromptInline(content: string) {
   });
 }
 
-const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8001";
+const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8002";
 
 export default function Page() {
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
@@ -2462,16 +2472,32 @@ export default function Page() {
       return;
     }
 
-    // Generic registered-tool fallback for text sources (e.g. dementia_prediction_tool).
-    // Forwards the uploaded clinical note path to the backend's generic tool runner and
+    // Generic registered-tool fallback for source-backed tools.
+    // Forwards the active source path to the backend's generic tool runner and
     // surfaces the tool's summary as an assistant message.
-    if (preAnalysisSource?.source_type === "text" && preAnalysisSource.source_path) {
+    if ((preAnalysisSource?.source_type === "text" || preAnalysisSource?.source_type === "image") && preAnalysisSource.source_path) {
       const toolPayload: Record<string, unknown> = {
         ...options,
-        text_path: preAnalysisSource.source_path,
+        question: remainder,
+        source_type: preAnalysisSource.source_type,
+        source_path: preAnalysisSource.source_path,
+        source_file_path: preAnalysisSource.source_path,
         file_name: preAnalysisSource.file_name,
+        active_artifact: {
+          source_type: preAnalysisSource.source_type,
+          source_path: preAnalysisSource.source_path,
+          source_file_path: preAnalysisSource.source_path,
+          file_name: preAnalysisSource.file_name,
+        },
         chatclinic_api_base: apiBase.replace(/\/$/, ""),
       };
+      if (preAnalysisSource.source_type === "text") {
+        toolPayload.text_path = preAnalysisSource.source_path;
+      }
+      if (preAnalysisSource.source_type === "image") {
+        toolPayload.image_path = preAnalysisSource.source_path;
+        toolPayload.img_path = preAnalysisSource.source_path;
+      }
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/${alias}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2487,6 +2513,9 @@ export default function Page() {
         resultData.summary ??
         JSON.stringify(resultData).slice(0, 500);
       setStatus(toolReadyStatus(alias, remainder));
+      if (toolResult.studio) {
+        activateStudioFromPayload(toolResult.studio, undefined, preAnalysisSource.source_type);
+      }
       addMessage({
         role: "assistant",
         content: typeof summary === "string" ? summary : `\`@${alias}\` completed successfully.`,
@@ -2505,6 +2534,7 @@ export default function Page() {
         `\`@${alias}\` is not compatible with the current active source.` +
         (preAnalysisSource ? ` Current source type: \`${preAnalysisSource.source_type}\`.` : ""),
     });
+    setStatus(toolFailedStatus(alias, remainder));
   }
 
   async function handleStartRawQc(file: File, options?: { silent?: boolean }): Promise<RawQcResponse | null> {

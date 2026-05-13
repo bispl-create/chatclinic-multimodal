@@ -3,8 +3,9 @@
   "team": "chatclinic-ayq",
   "task_type": "medical-image-detection",
   "modality": "medical-image",
+  "source_types": ["image"],
   "approval_required": false,
-  "entrypoint": "run.py",
+  "entrypoint": "",
   "description": "Run AYQ DINO detection inference on uploaded medical images using the AYQ inference workflow.",
   "keywords": [
     "detection",
