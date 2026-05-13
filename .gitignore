@@ -30,3 +30,7 @@ uploads/
 references/
 third_party/
 data/
+
+# Model weights
+plugins/cxr_classification_tool/model/weights/*.pth
+plugins/cxr_zeroshot_tool/model/weights/*.pt

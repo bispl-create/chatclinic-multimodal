@@ -2535,11 +2535,46 @@ export default function Page() {
       return;
     }
 
+    if (alias === "cxr" && preAnalysisSource.source_type === "image") {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/cxr/classify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_path: preAnalysisSource.source_path,
+          file_name: preAnalysisSource.file_name,
+          source: preAnalysisSource,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = await response.json();
+      const topLabels = payload.labels.slice(0, 10);
+
+      setStatus(toolReadyStatus(alias, remainder));
+      addMessage({
+        role: "assistant",
+        content:
+          `CXR classification completed for the current image source.\n\n` +
+          topLabels
+            .map((label: any) => `- ${label.name}: ${(label.probability * 100).toFixed(1)}%`)
+            .join("\n"),
+      });
+      return;
+    }
+
     if (
       (alias === "carotid" || alias === "carotid_plaque" || alias === "carotidplaque") &&
       preAnalysisSource.source_type === "carotid_hdf5"
     ) {
-      addMessage({ role: "assistant", content: "Carotid plaque analysis를 재실행합니다...", kind: "status" });
+      addMessage({
+        role: "assistant",
+        content: "Carotid plaque analysis를 재실행합니다...",
+        kind: "status",
+      });
+
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/carotid_plaque_analysis_tool/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2552,10 +2587,15 @@ export default function Page() {
           },
         }),
       });
-      if (!response.ok) throw new Error(await response.text());
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
       const payload = (await response.json()) as ToolRunResponse;
       const result = payload.result;
       const cls = result?.artifacts?.classification ?? {};
+
       setCarotidAnalysis((current) =>
         current
           ? {
@@ -2566,11 +2606,13 @@ export default function Page() {
             }
           : current
       );
+
       activateStudioFromPayload(
         { requested_view: "carotid_review", studio: { renderer: "carotid_review" } },
         "carotid_review",
         "carotid_hdf5"
       );
+
       setStatus(toolReadyStatus(alias, remainder));
       addMessage({
         role: "assistant",
@@ -2578,6 +2620,35 @@ export default function Page() {
           `Carotid plaque analysis completed for **${preAnalysisSource.file_name}**.\n\n` +
           `- Classification: **${cls.label ?? "n/a"}**\n` +
           `- Probability: ${cls.probability != null ? cls.probability.toFixed(3) : "n/a"}`,
+      });
+      return;
+    }
+
+    if (alias === "cxr-zeroshot" && preAnalysisSource.source_type === "image") {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/cxr/zeroshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_path: preAnalysisSource.source_path,
+          file_name: preAnalysisSource.file_name,
+          source: preAnalysisSource,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = await response.json();
+
+      setStatus(toolReadyStatus(alias, remainder));
+      addMessage({
+        role: "assistant",
+        content:
+          `CXR zero-shot classification completed for the current image source.\n\n` +
+          payload.labels
+            .map((label: any) => `- ${label.name}: ${(label.probability * 100).toFixed(1)}%`)
+            .join("\n"),
       });
       return;
     }

@@ -1,0 +1,30 @@
+{
+  "name": "cxr_classification_tool",
+  "entrypoint": "plugins.cxr_classification_tool.logic:run",
+  "description": "Multi-label classification for 30 known CXR findings.",
+  "task": "multi_label_classification",
+  "modality": "image",
+  "source": "plugin",
+  "aliases": ["cxr", "cxr-classify"],
+  "routing": {
+    "trigger_keywords": ["cxr", "cxr-classify"]
+  },
+  "direct_chat": {
+    "response_kind": "image_chat",
+    "result_kind": "cxr_classification",
+    "requested_view": "cxr_classification",
+    "studio": {
+      "renderer": "cxr_classification"
+    },
+    "source_types": ["image"]
+  },
+  "source_types": ["image"],
+  "help": {
+    "summary": "Run CXR multi-label classification on a chest X-ray image.",
+    "options": [],
+    "examples": ["@cxr", "@cxr help"]
+  },
+  "initial_for": [
+    "image"
+  ]
+}
