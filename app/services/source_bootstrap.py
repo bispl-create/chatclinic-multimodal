@@ -6,9 +6,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from app.models import AnalysisResponse, DicomSourceResponse, FhirSourceResponse, ImageSourceResponse, NiftiSourceResponse, RawQcResponse, SpreadsheetSourceResponse, SummaryStatsResponse, TextSourceResponse
+from app.models import AnalysisResponse, CarotidSourceResponse, DicomSourceResponse, FhirSourceResponse, ImageSourceResponse, NiftiSourceResponse, RawQcResponse, SpreadsheetSourceResponse, SummaryStatsResponse, TextSourceResponse
 from app.services.source_registry import source_response_metadata
 from app.services.workflows import (
+    analyze_carotid_workflow,
     analyze_raw_qc_workflow,
     analyze_dicom_workflow,
     analyze_fhir_workflow,
@@ -71,6 +72,7 @@ BOOTSTRAP_RUNNERS: dict[str, Any] = {
     "text": analyze_text_workflow,
     "image": analyze_image_workflow,
     "nifti": analyze_nifti_workflow,
+    "carotid_hdf5": analyze_carotid_workflow,
 }
 
 
@@ -79,7 +81,7 @@ def run_bootstrap_analysis(
     source_path: str,
     file_name: str,
     **kwargs: Any,
-) -> AnalysisResponse | DicomSourceResponse | FhirSourceResponse | ImageSourceResponse | NiftiSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
+) -> AnalysisResponse | CarotidSourceResponse | DicomSourceResponse | FhirSourceResponse | ImageSourceResponse | NiftiSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
     manifest = load_bootstrap_manifest(source_type)
     if manifest is None:
         raise ValueError(f"No bootstrap manifest is registered for source type: {source_type}")
@@ -121,6 +123,9 @@ def run_bootstrap_analysis(
         result = runner(source_path, file_name)
         return result.model_copy(update=source_response_metadata(source_type))
     if source_type == "nifti":
+        result = runner(source_path, file_name)
+        return result.model_copy(update=source_response_metadata(source_type))
+    if source_type == "carotid_hdf5":
         result = runner(source_path, file_name)
         return result.model_copy(update=source_response_metadata(source_type))
     raise NotImplementedError(f"Unsupported bootstrap source type: {source_type}")

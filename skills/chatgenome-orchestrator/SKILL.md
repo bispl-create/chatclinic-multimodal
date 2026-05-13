@@ -9,7 +9,7 @@ This skill defines the intended orchestration layer for `ChatGenome`.
 
 ## Welcome message
 
-Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TIFF images, NIfTI volumes (.nii, .nii.gz), FHIR clinical bundles (.fhir.json, .fhir.xml, .ndjson), VCF (variant interpretation), Excel workbooks, text/markdown notes, FASTQ/BAM/SAM (raw sequencing QC), and summary statistics. The appropriate tools will run automatically after upload. Type `@help` for detailed tool options and usage tips.
+Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TIFF images, NIfTI volumes (.nii, .nii.gz), FHIR clinical bundles (.fhir.json, .fhir.xml, .ndjson), carotid ultrasound HDF5 files (.h5, .hdf5), VCF (variant interpretation), Excel workbooks, text/markdown notes, FASTQ/BAM/SAM (raw sequencing QC), and summary statistics. The appropriate tools will run automatically after upload. Type `@help` for detailed tool options and usage tips.
 
 ## Help message
 
@@ -26,6 +26,11 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 
 **FHIR Bundle**
 - Auto: FHIR Browser (patient, medications, labs, care team)
+
+**Carotid Ultrasound HDF5 (.h5, .hdf5)**
+- Auto: Carotid Plaque Analysis (segmentation masks, RADS vulnerability classification)
+- `@carotid` — Re-run carotid plaque segmentation and RADS classification
+- `@carotid help` — Show inference options (cls_threshold, resize_target)
 
 **Excel Workbook**
 - Auto: Cohort Browser (sheets, schema, missingness)
@@ -131,6 +136,7 @@ Later tools should include:
 - Use `clinical_coverage_tool` to summarize annotation completeness.
 - Use `filtering_view_tool` to populate filtering/triage overview metrics for the variant table.
 - Use `symbolic_alt_tool` to split symbolic ALT records into a dedicated review path.
+- Use `carotid_plaque_analysis_tool` when a carotid HDF5 source is uploaded or when the user requests `@carotid`. Returns segmentation masks (longitudinal and transverse) and RADS vulnerability classification.
 - Chat should refer to tool outputs and Studio summaries as the trusted state.
 - If a tool fails, preserve the prior direct implementation as fallback until migration is complete.
 

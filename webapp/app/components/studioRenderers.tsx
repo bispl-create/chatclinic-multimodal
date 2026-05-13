@@ -40,7 +40,8 @@ const STUDIO_RENDERER_METADATA: Record<string, { requestedViews?: string[]; resu
   igv: { requestedViews: ["igv"] },
   annotations: { requestedViews: ["annotations"] },
   fhir_browser: { requestedViews: ["fhir_browser"] },
-  parkinson_plan: { requestedViews: ["parkinson_plan"] },
+carotid_review: { requestedViews: ["carotid_review"], resultKinds: ["carotid_analysis"] },
+parkinson_plan: { requestedViews: ["parkinson_plan"] },
 };
 
 function findRendererKeyByRequestedView(requestedView?: string | null): string | null {

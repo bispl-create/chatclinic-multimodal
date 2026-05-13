@@ -772,6 +772,113 @@ function FhirBrowserCard({ analysis }: { analysis: any }) {
   );
 }
 
+function CarotidPlaqueCard({
+  analysis,
+  components,
+}: {
+  analysis: any;
+  components: StudioRendererBuilderArgs["components"];
+}) {
+  const { StudioMetricGrid, WarningListCard } = components;
+  const artifacts = analysis?.artifacts ?? {};
+  const masks = artifacts.segmentation_masks ?? {};
+  const classification = artifacts.classification ?? {};
+  const longMask = masks.longitudinal ?? {};
+  const transMask = masks.transverse ?? {};
+  const label = String(classification.label ?? "unknown");
+  const probability = typeof classification.probability === "number" ? classification.probability : null;
+  const isHighRisk = classification.cls === 1;
+
+  return (
+    <section className="notebookPanel studioCanvasPanel">
+      <div className="notebookHeader">
+        <h2>Carotid Plaque Analysis</h2>
+        <span className="pill">{analysis?.file_name ?? "carotid.h5"}</span>
+      </div>
+      <div className="studioCanvasBody">
+        <StudioMetricGrid
+          items={[
+            { label: "Classification", value: isHighRisk ? "High-risk" : "Low-risk", tone: isHighRisk ? "warn" : "good" },
+            { label: "RADS", value: isHighRisk ? "3–4" : "2", tone: isHighRisk ? "warn" : "good" },
+            { label: "Probability", value: probability != null ? `${(probability * 100).toFixed(1)}%` : "n/a", tone: "neutral" },
+            { label: "File", value: String(analysis?.file_name ?? "n/a"), tone: "neutral" },
+          ]}
+        />
+
+        <div className="resultSectionSplit" style={{ gridTemplateColumns: "1fr 1fr", alignItems: "start" }}>
+          <article className="miniCard">
+            <h3>Longitudinal view</h3>
+            {longMask.image_data_url ? (
+              <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
+                <img
+                  src={longMask.image_data_url}
+                  alt="Longitudinal segmentation mask"
+                  style={{ maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", border: "1px solid var(--border-color, #ddd)" }}
+                />
+              </div>
+            ) : (
+              <p className="emptyState">No longitudinal mask is available.</p>
+            )}
+            {longMask.shape?.length ? (
+              <p className="summaryStatsGridMeta">
+                Shape: {longMask.shape.join(" × ")} px
+                {Array.isArray(longMask.unique_labels) ? ` · Labels: ${longMask.unique_labels.join(", ")}` : ""}
+              </p>
+            ) : null}
+          </article>
+
+          <article className="miniCard">
+            <h3>Transverse view</h3>
+            {transMask.image_data_url ? (
+              <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
+                <img
+                  src={transMask.image_data_url}
+                  alt="Transverse segmentation mask"
+                  style={{ maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", border: "1px solid var(--border-color, #ddd)" }}
+                />
+              </div>
+            ) : (
+              <p className="emptyState">No transverse mask is available.</p>
+            )}
+            {transMask.shape?.length ? (
+              <p className="summaryStatsGridMeta">
+                Shape: {transMask.shape.join(" × ")} px
+                {Array.isArray(transMask.unique_labels) ? ` · Labels: ${transMask.unique_labels.join(", ")}` : ""}
+              </p>
+            ) : null}
+          </article>
+        </div>
+
+        <article className="miniCard">
+          <h3>Classification result</h3>
+          <div className="variantTableWrap summaryStatsTableWrap">
+            <table className="variantTable summaryStatsTable">
+              <tbody>
+                <tr><th>Label</th><td>{label}</td></tr>
+                <tr><th>Probability</th><td>{probability != null ? probability.toFixed(4) : "n/a"}</td></tr>
+                <tr><th>RADS category</th><td>{isHighRisk ? "RADS 3-4 (High-risk)" : "RADS 2 (Low-risk)"}</td></tr>
+                <tr><th>Segmentation classes</th><td>0 = background, 1 = plaque (red), 2 = vessel (blue)</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        {analysis?.grounded_summary ? (
+          <article className="miniCard">
+            <h3>Summary</h3>
+            <p style={{ fontSize: "0.875rem", lineHeight: "1.6" }}>{analysis.grounded_summary}</p>
+          </article>
+        ) : null}
+
+        <WarningListCard
+          warnings={Array.isArray(analysis?.warnings) ? analysis.warnings : []}
+          emptyLabel="No carotid analysis warnings."
+        />
+      </div>
+    </section>
+  );
+}
+
 export function buildCustomStudioRendererRegistry({
   activeStudioView,
   apiBase,
@@ -791,6 +898,7 @@ export function buildCustomStudioRendererRegistry({
   imageAnalysis,
   niftiAnalysis,
   fhirAnalysis,
+  carotidAnalysis,
   candidateVariants,
   searchedAnnotations,
   setSelectedAnnotationIndex,
@@ -837,6 +945,10 @@ export function buildCustomStudioRendererRegistry({
     fhir_browser: () =>
       fhirAnalysis ? (
         <FhirBrowserCard analysis={fhirAnalysis} />
+      ) : null,
+    carotid_review: () =>
+      carotidAnalysis ? (
+        <CarotidPlaqueCard analysis={carotidAnalysis} components={components} />
       ) : null,
     cohort_browser: () =>
       spreadsheetAnalysis ? (

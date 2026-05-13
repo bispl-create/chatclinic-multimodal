@@ -20,3 +20,5 @@ dependencies:
   - pip:
       - transformers==4.57.6
       - vllm==0.18.1
+      - timm>=1.0,<2.0
+      - h5py>=3.10,<4.0

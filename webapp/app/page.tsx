@@ -503,6 +503,30 @@ type FhirChatResponse = {
   analysis?: FhirSourceResponse | null;
 };
 
+type CarotidSourceResponse = {
+  analysis_id: string;
+  source_carotid_path?: string | null;
+  file_name: string;
+  file_kind: string;
+  grounded_summary: string;
+  studio_cards: Array<Record<string, any>>;
+  artifacts: Record<string, any>;
+  warnings: string[];
+  draft_answer: string;
+  used_tools: string[];
+  tool_registry: AnalysisResponse["tool_registry"];
+};
+
+type CarotidChatResponse = {
+  answer: string;
+  citations: string[];
+  used_fallback: boolean;
+  result_kind?: string | null;
+  requested_view?: StudioView | null;
+  studio?: { renderer?: string | null } | null;
+  analysis?: CarotidSourceResponse | null;
+};
+
 type RPlotResponse = {
   tool: string;
   input_path: string;
@@ -544,13 +568,13 @@ type RawQcChatResponse = {
 };
 
 type SourceReadyResponse = {
-  source_type: "vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | "nifti" | "fhir";
+  source_type: "vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | "nifti" | "fhir" | "carotid_hdf5";
   file_name: string;
   source_path: string;
   file_kind?: string | null;
 };
 
-type SessionMode = "prs" | "vcf_analysis" | "raw_sequence" | "text_review" | "spreadsheet_review" | "imaging_review" | "image_review" | "fhir_review";
+type SessionMode = "prs" | "vcf_analysis" | "raw_sequence" | "text_review" | "spreadsheet_review" | "imaging_review" | "image_review" | "fhir_review" | "carotid_review";
 
 type PrsPrepResponse = {
   analysis_id: string;
@@ -627,6 +651,7 @@ type StudioView =
   | "image_review"
   | "nifti_review"
   | "fhir_browser"
+  | "carotid_review"
   | "parkinson_plan";
 
 type RohStudioSegment = {
@@ -721,6 +746,11 @@ function isFhirFileName(fileName: string) {
     return lowered.includes("fhir") || lowered.includes("bundle") || lowered.includes("patient");
   }
   return false;
+}
+
+function isCarotidFileName(fileName: string) {
+  const lowered = fileName.toLowerCase();
+  return lowered.endsWith(".h5") || lowered.endsWith(".hdf5");
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -1305,11 +1335,12 @@ export default function Page() {
   const [imageAnalysis, setImageAnalysis] = useState<ImageSourceResponse | null>(null);
   const [niftiAnalysis, setNiftiAnalysis] = useState<any>(null);
   const [fhirAnalysis, setFhirAnalysis] = useState<FhirSourceResponse | null>(null);
+  const [carotidAnalysis, setCarotidAnalysis] = useState<CarotidSourceResponse | null>(null);
   const [summaryStatsGridRows, setSummaryStatsGridRows] = useState<Array<Record<string, string>>>([]);
   const [summaryStatsHasMore, setSummaryStatsHasMore] = useState(false);
   const [summaryStatsRowsLoading, setSummaryStatsRowsLoading] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
-  const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | "nifti" | "fhir" | null>(null);
+  const [attachedSourceType, setAttachedSourceType] = useState<"vcf" | "raw_qc" | "summary_stats" | "text" | "spreadsheet" | "dicom" | "image" | "nifti" | "fhir" | "carotid_hdf5" | null>(null);
   const [activeSource, setActiveSource] = useState<SourceReadyResponse | null>(null);
   const [uploadedSources, setUploadedSources] = useState<Array<{ name: string; sourceType: string; timestamp: number }>>([]);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
@@ -1324,6 +1355,7 @@ export default function Page() {
     if (src === "dicom") return "imaging_review";
     if (src === "image") return "image_review";
     if (src === "fhir") return "fhir_review";
+    if (src === "carotid_hdf5") return "carotid_review";
     return null;
   }, [attachedSourceType]);
   const [pendingUploadRole, setPendingUploadRole] = useState<"default" | "prs_summary" | "prs_target">("default");
@@ -1395,8 +1427,10 @@ export default function Page() {
             ? niftiAnalysis.tool_registry
           : fhirAnalysis?.tool_registry?.length
             ? fhirAnalysis.tool_registry
+          : carotidAnalysis?.tool_registry?.length
+            ? carotidAnalysis.tool_registry
           : toolRegistry;
-    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis && !niftiAnalysis && !fhirAnalysis && sessionModeModality) {
+    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis && !niftiAnalysis && !fhirAnalysis && !carotidAnalysis && sessionModeModality) {
       return (base ?? []).filter((t: any) => t.modality === sessionModeModality);
     }
     return base;
@@ -1628,6 +1662,8 @@ export default function Page() {
     const guessedSourceType =
       isFhirFileName(file.name)
         ? "fhir"
+        : isCarotidFileName(file.name)
+        ? "carotid_hdf5"
         : isNiftiFileName(file.name)
         ? "nifti"
         : isRawQcFileName(file.name)
@@ -1654,6 +1690,8 @@ export default function Page() {
     setStatus(
       guessedSourceType === "fhir"
         ? "Uploading FHIR source..."
+        : guessedSourceType === "carotid_hdf5"
+        ? "Uploading carotid HDF5 source..."
         : guessedSourceType === "spreadsheet"
         ? "Uploading spreadsheet source..."
         : guessedSourceType === "dicom"
@@ -1710,6 +1748,8 @@ export default function Page() {
       setNiftiAnalysis(null);
     } else if (guessedSourceType === "fhir") {
       setFhirAnalysis(null);
+    } else if (guessedSourceType === "carotid_hdf5") {
+      setCarotidAnalysis(null);
     }
     setFollowUpAnswer(null);
     // Multimodal: preserve chat history and studio view across source uploads.
@@ -1737,6 +1777,29 @@ export default function Page() {
         addMessage({
           role: "assistant",
           content: `FHIR source \`${file.name}\` is loaded and reviewed automatically. Open the Studio FHIR Browser card to inspect patient, medications, labs, and care team.`,
+        });
+        event.target.value = "";
+        setPendingUploadRole("default");
+        return;
+      }
+
+      if (guessedSourceType === "carotid_hdf5") {
+        const payload = await handleStartCarotidReview(file, { silent: true });
+        if (!payload) {
+          event.target.value = "";
+          setPendingUploadRole("default");
+          return;
+        }
+        setActiveSource({
+          source_type: "carotid_hdf5",
+          file_name: payload.file_name,
+          source_path: payload.source_carotid_path ?? "",
+          file_kind: payload.file_kind,
+        });
+        setStatus("Carotid plaque analysis ready");
+        addMessage({
+          role: "assistant",
+          content: `Carotid HDF5 source \`${file.name}\` is loaded. Segmentation masks and RADS vulnerability classification are available in the Studio panel.`,
         });
         event.target.value = "";
         setPendingUploadRole("default");
@@ -2472,10 +2535,60 @@ export default function Page() {
       return;
     }
 
+    if (
+      (alias === "carotid" || alias === "carotid_plaque" || alias === "carotidplaque") &&
+      preAnalysisSource.source_type === "carotid_hdf5"
+    ) {
+      addMessage({ role: "assistant", content: "Carotid plaque analysis를 재실행합니다...", kind: "status" });
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/carotid_plaque_analysis_tool/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload: {
+            source_path: preAnalysisSource.source_path,
+            file_name: preAnalysisSource.file_name,
+            ...(options.cls_threshold ? { cls_threshold: parseFloat(options.cls_threshold) } : {}),
+            ...(options.resize_target ? { resize_target: parseInt(options.resize_target, 10) } : {}),
+          },
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const payload = (await response.json()) as ToolRunResponse;
+      const result = payload.result;
+      const cls = result?.artifacts?.classification ?? {};
+      setCarotidAnalysis((current) =>
+        current
+          ? {
+              ...current,
+              artifacts: result.artifacts ?? current.artifacts,
+              grounded_summary: result.grounded_summary ?? current.grounded_summary,
+              used_tools: result.used_tools ?? current.used_tools,
+            }
+          : current
+      );
+      activateStudioFromPayload(
+        { requested_view: "carotid_review", studio: { renderer: "carotid_review" } },
+        "carotid_review",
+        "carotid_hdf5"
+      );
+      setStatus(toolReadyStatus(alias, remainder));
+      addMessage({
+        role: "assistant",
+        content:
+          `Carotid plaque analysis completed for **${preAnalysisSource.file_name}**.\n\n` +
+          `- Classification: **${cls.label ?? "n/a"}**\n` +
+          `- Probability: ${cls.probability != null ? cls.probability.toFixed(3) : "n/a"}`,
+      });
+      return;
+    }
+
     // Generic registered-tool fallback for source-backed tools.
     // Forwards the active source path to the backend's generic tool runner and
     // surfaces the tool's summary as an assistant message.
-    if ((preAnalysisSource?.source_type === "text" || preAnalysisSource?.source_type === "image") && preAnalysisSource.source_path) {
+    if (
+      (preAnalysisSource?.source_type === "text" || preAnalysisSource?.source_type === "image") &&
+      preAnalysisSource.source_path
+    ) {
       const toolPayload: Record<string, unknown> = {
         ...options,
         question: remainder,
@@ -2491,34 +2604,45 @@ export default function Page() {
         },
         chatclinic_api_base: apiBase.replace(/\/$/, ""),
       };
+
       if (preAnalysisSource.source_type === "text") {
         toolPayload.text_path = preAnalysisSource.source_path;
       }
+
       if (preAnalysisSource.source_type === "image") {
         toolPayload.image_path = preAnalysisSource.source_path;
         toolPayload.img_path = preAnalysisSource.source_path;
       }
+
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/${alias}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payload: toolPayload }),
       });
+
       if (!response.ok) {
         throw new Error(await response.text());
       }
+
       const toolResult = await response.json();
       const resultData = toolResult.result ?? {};
       const summary =
         resultData.dementia_prediction?.summary ??
         resultData.summary ??
         JSON.stringify(resultData).slice(0, 500);
+
       setStatus(toolReadyStatus(alias, remainder));
+
       if (toolResult.studio) {
         activateStudioFromPayload(toolResult.studio, undefined, preAnalysisSource.source_type);
       }
+
       addMessage({
         role: "assistant",
         content: typeof summary === "string" ? summary : `\`@${alias}\` completed successfully.`,
+      });
+      return;
+    }
       });
       return;
     }
@@ -2843,6 +2967,51 @@ export default function Page() {
       addMessage({
         role: "assistant",
         content: `FHIR review 중 오류가 발생했습니다: ${message}`,
+      });
+      return null;
+    }
+  }
+
+  async function handleStartCarotidReview(
+    file: File,
+    options?: { silent?: boolean },
+  ): Promise<CarotidSourceResponse | null> {
+    const silent = options?.silent ?? false;
+    setError(null);
+    setStatus("Running carotid plaque analysis...");
+    if (!silent) {
+      addMessage({
+        role: "assistant",
+        content: "Carotid HDF5 파일에서 경동맥 플라크를 분할하고 RADS 취약성 분류를 수행합니다. 잠시 기다려 주세요.",
+        kind: "status",
+      });
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/carotid/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload: CarotidSourceResponse = await response.json();
+      setCarotidAnalysis(payload);
+      activateStudioFromPayload(payload, "carotid_review", "carotid_hdf5");
+      setStatus("Carotid plaque analysis ready");
+      setComposerText("");
+      return payload;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setError(message);
+      setStatus("Carotid plaque analysis failed");
+      addMessage({
+        role: "assistant",
+        content: `Carotid plaque analysis 중 오류가 발생했습니다: ${message}`,
       });
       return null;
     }
@@ -3207,7 +3376,7 @@ export default function Page() {
       return;
     }
 
-    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis && !niftiAnalysis && !fhirAnalysis) {
+    if (!analysis && !rawQcAnalysis && !summaryStatsAnalysis && !dicomAnalysis && !spreadsheetAnalysis && !textAnalysis && !imageAnalysis && !niftiAnalysis && !fhirAnalysis && !carotidAnalysis) {
       addMessage({ role: "user", content: text });
       setComposerText("");
       addMessage({
@@ -3218,7 +3387,7 @@ export default function Page() {
     }
 
     // Count active sources — use multimodal endpoint when >1 source is loaded
-    const activeSourceCount = [analysis, rawQcAnalysis, summaryStatsAnalysis, dicomAnalysis, spreadsheetAnalysis, textAnalysis, imageAnalysis, niftiAnalysis, fhirAnalysis].filter(Boolean).length;
+    const activeSourceCount = [analysis, rawQcAnalysis, summaryStatsAnalysis, dicomAnalysis, spreadsheetAnalysis, textAnalysis, imageAnalysis, niftiAnalysis, fhirAnalysis, carotidAnalysis].filter(Boolean).length;
 
     if (activeSourceCount > 1) {
       setComposerText("");
@@ -3278,6 +3447,12 @@ export default function Page() {
     if (fhirAnalysis) {
       setComposerText("");
       await handleAskFhirQuestion(text);
+      return;
+    }
+
+    if (carotidAnalysis) {
+      setComposerText("");
+      await handleAskCarotidQuestion(text);
       return;
     }
 
@@ -3827,6 +4002,48 @@ export default function Page() {
     }
   }
 
+  async function handleAskCarotidQuestion(questionText?: string, analysisOverride?: CarotidSourceResponse | null) {
+    const text = questionText?.trim() ?? "";
+    const activeAnalysis = analysisOverride ?? carotidAnalysis;
+    if (!text || !activeAnalysis) {
+      return;
+    }
+
+    setStatus("Generating answer...");
+    setAnalysisQa((current) => [...current, { role: "user", content: text }]);
+
+    try {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/chat/carotid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: text,
+          analysis: activeAnalysis,
+          history: analysisQa.map((turn) => ({ role: turn.role, content: turn.content })),
+          studio_context: studioContext,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload: CarotidChatResponse = await response.json();
+      if (payload.analysis) {
+        setCarotidAnalysis(payload.analysis);
+      }
+      activateStudioFromPayload(payload, "carotid_review", "carotid_hdf5");
+      setAnalysisQa((current) => [...current, { role: "assistant", content: payload.answer }]);
+      setFollowUpAnswer(payload.answer);
+      setStatus("Answer ready");
+    } catch (caught) {
+      const msg = caught instanceof Error ? caught.message : String(caught);
+      setAnalysisQa((current) => [
+        ...current,
+        { role: "assistant", content: `설명 요청 중 오류가 발생했습니다: ${msg}` },
+      ]);
+      setStatus("Answer failed");
+    }
+  }
+
   async function handleAskMultimodalQuestion(questionText?: string) {
     const text = questionText?.trim() ?? "";
     if (!text) return;
@@ -3849,6 +4066,7 @@ export default function Page() {
           image_analysis: imageAnalysis ?? undefined,
           nifti_analysis: niftiAnalysis ?? undefined,
           fhir_analysis: fhirAnalysis ?? undefined,
+          carotid_analysis: carotidAnalysis ?? undefined,
           primary_source_type: (() => {
             // Infer focused source from active studio view
             const v = activeStudioView ?? "";
@@ -3857,6 +4075,7 @@ export default function Page() {
               if (v === "dicom_review" || v.startsWith("dicom")) return "dicom";
               if (v === "image_review") return "image";
               if (v === "fhir_browser") return "fhir";
+              if (v === "carotid_review") return "carotid_hdf5";
               if (v === "rawqc" || v === "samtools") return "raw_qc";
               if (v === "sumstats" || v === "qqman" || v === "prs_prep") return "summary_stats";
               if (v === "text") return "text";
@@ -3950,9 +4169,11 @@ export default function Page() {
         ? niftiAnalysis.draft_answer
       : fhirAnalysis
         ? fhirAnalysis.draft_answer
+      : carotidAnalysis
+        ? carotidAnalysis.draft_answer
       : null;
   const displayedAnswer = followUpAnswer ?? summaryText;
-  const hasInteractiveState = Boolean(attachedFile || analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || niftiAnalysis || fhirAnalysis || messages.length > 1);
+  const hasInteractiveState = Boolean(attachedFile || analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || niftiAnalysis || fhirAnalysis || carotidAnalysis || messages.length > 1);
   const latestStatusMessage =
     [...messages].reverse().find((message) => message.kind === "status" || message.kind === "summary")?.content ?? "";
   const sourceStatusDetail = useMemo(() => {
@@ -4172,7 +4393,7 @@ export default function Page() {
     status === "VCF review ready" ||
     status === "Tool ready"
       ? status
-      : analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || niftiAnalysis || fhirAnalysis
+      : analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || textAnalysis || imageAnalysis || niftiAnalysis || fhirAnalysis || carotidAnalysis
         ? analysis
           ? "Analysis ready"
           : rawQcAnalysis
@@ -4191,10 +4412,12 @@ export default function Page() {
                         ? "NIfTI review ready"
                       : fhirAnalysis
                         ? "FHIR review ready"
-                        : "Analysis ready"
+                        : carotidAnalysis
+                          ? "Carotid analysis ready"
+                          : "Analysis ready"
         : status;
   const summaryTurn =
-    analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || imageAnalysis || niftiAnalysis || fhirAnalysis
+    analysis || rawQcAnalysis || summaryStatsAnalysis || dicomAnalysis || spreadsheetAnalysis || imageAnalysis || niftiAnalysis || fhirAnalysis || carotidAnalysis
       ? [
           {
             role: "assistant" as const,
@@ -4425,6 +4648,7 @@ export default function Page() {
       imageAnalysis ||
       niftiAnalysis ||
       fhirAnalysis ||
+      carotidAnalysis ||
       prsPrepResultForStudio ||
       qqmanResultForStudio ||
       snpeffResultForStudio ||
@@ -4591,6 +4815,21 @@ export default function Page() {
       }
     }
 
+    // Carotid HDF5 cards
+    if (carotidAnalysis) {
+      if (carotidAnalysis.studio_cards?.length) {
+        carotidAnalysis.studio_cards.forEach((card: any) => {
+          cards.push({
+            id: String(card.id ?? "carotid_review") as StudioView,
+            title: String(card.title ?? "Carotid Plaque Analysis"),
+            subtitle: String(card.subtitle ?? "Segmentation masks and RADS vulnerability classification"),
+          });
+        });
+      } else {
+        cards.push({ id: "carotid_review" as StudioView, title: "Carotid Plaque Analysis", subtitle: "Segmentation masks and RADS vulnerability classification" });
+      }
+    }
+
     // Orphan direct tool results (no parent analysis loaded)
     if (!analysis && !rawQcAnalysis) {
       if (samtoolsResultForStudio) cards.push({ id: "samtools" as StudioView, title: "Samtools Review", subtitle: "Alignment QC summary" });
@@ -4619,6 +4858,7 @@ export default function Page() {
     imageAnalysis,
     niftiAnalysis,
     fhirAnalysis,
+    carotidAnalysis,
     prsPrepResultForStudio,
     qqmanResultForStudio,
     samtoolsResultForStudio,
@@ -5051,7 +5291,32 @@ export default function Page() {
       };
     }
 
-    if (!analysis && !dicomAnalysis && !spreadsheetAnalysis && !imageAnalysis && !niftiAnalysis && !fhirAnalysis) {
+    // --- Carotid HDF5 source ---
+    if (carotidAnalysis) {
+      const cls = carotidAnalysis.artifacts?.classification ?? {};
+      if (!analysis && !dicomAnalysis && !spreadsheetAnalysis && !imageAnalysis && !niftiAnalysis && !fhirAnalysis) {
+        merged.current_card = {
+          file_name: carotidAnalysis.file_name,
+          label: cls.label,
+          probability: cls.probability,
+          cls: cls.cls,
+        };
+        merged.current_summary = {
+          label: cls.label,
+          probability: cls.probability,
+        };
+      }
+      allWarnings.push(...(Array.isArray(carotidAnalysis.warnings) ? carotidAnalysis.warnings.slice(0, 12) : []));
+      mergedExtra.carotid = {
+        file_name: carotidAnalysis.file_name,
+        file_kind: carotidAnalysis.file_kind,
+        label: cls.label,
+        probability: cls.probability,
+        cls: cls.cls,
+      };
+    }
+
+    if (!analysis && !dicomAnalysis && !spreadsheetAnalysis && !imageAnalysis && !niftiAnalysis && !fhirAnalysis && !carotidAnalysis) {
       return {};
     }
 
@@ -5067,6 +5332,7 @@ export default function Page() {
     imageAnalysis,
     niftiAnalysis,
     fhirAnalysis,
+    carotidAnalysis,
     candidateVariants,
     clinicalCoverage,
     filteringSummary,
@@ -5174,6 +5440,7 @@ export default function Page() {
                                       : st === "image" ? "Active image source"
                                       : st === "nifti" ? "Active NIfTI source"
                                       : st === "fhir" ? "Active FHIR source"
+                                      : st === "carotid_hdf5" ? "Active carotid HDF5 source"
                                       : "Active VCF source";
                                   })()}
                             </p>
