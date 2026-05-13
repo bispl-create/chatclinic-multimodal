@@ -101,7 +101,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "text": {
         "upload_label": "text note",
-        "dedicated_upload_detail": "Only Markdown and plain-text note uploads such as .md, .markdown, .text, .note, and .log are supported.",
+        "dedicated_upload_detail": "Only Markdown and plain-text note uploads such as .txt, .md, .markdown, .text, .note, and .log are supported.",
         "upload_endpoint": "text",
         "bootstrap_source_type": "text",
         "chat_response_kind": "text",
@@ -114,8 +114,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": ["source_upload", "bootstrap_analysis", "grounded_chat"],
         "suffixes": [".markdown", ".md", ".txt", ".text", ".note", ".log"],
         "file_kind_map": {
-            ".markdown": "TEXT", ".md": "TEXT", ".txt": "TEXT",
-            ".text": "TEXT", ".note": "TEXT", ".log": "TEXT",
+            ".markdown": "TEXT", ".md": "TEXT", ".txt": "TEXT", ".text": "TEXT",
+            ".note": "TEXT", ".log": "TEXT",
         },
     },
     "raw_qc": {

@@ -913,3 +913,36 @@ class RPlotResponse(BaseModel):
     command_preview: str
     artifacts: list[RPlotArtifact]
     warnings: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Parkinson Enhanced RAG plan
+# ---------------------------------------------------------------------------
+
+class ParkinsonVisitHistory(BaseModel):
+    visit: str = ""
+    subjective: Optional[str] = None
+    objective: Optional[str] = None
+    assessment: Optional[str] = None
+    prescription: list[str] = []
+
+
+class ParkinsonPlanRequest(BaseModel):
+    subjective: str
+    objective: str = ""
+    assessment: str = ""
+    patient_id: str = "unknown"
+    recent_visit_history: list[ParkinsonVisitHistory] = []
+    threshold: float = 0.7
+    retrieve_patients: int = 4
+
+
+class ParkinsonPlanResponse(BaseModel):
+    patient_id: str
+    draft_plan: str
+    final_prescription: list[str]
+    focus_areas: dict[str, Any]
+    rag_tendency_by_focus: list[Any]
+    audit_log: list[Any]
+    doctor_summary: str = ""
+    summary: str

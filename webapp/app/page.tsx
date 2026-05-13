@@ -626,7 +626,8 @@ type StudioView =
   | "annotations"
   | "image_review"
   | "nifti_review"
-  | "fhir_browser";
+  | "fhir_browser"
+  | "parkinson_plan";
 
 type RohStudioSegment = {
   label: string;
@@ -662,7 +663,6 @@ function isSummaryStatsFileName(fileName: string) {
   return (
     lowered.endsWith(".tsv") ||
     lowered.endsWith(".tsv.gz") ||
-    lowered.endsWith(".txt") ||
     lowered.endsWith(".txt.gz") ||
     lowered.endsWith(".csv") ||
     lowered.endsWith(".csv.gz") ||
@@ -674,6 +674,7 @@ function isSummaryStatsFileName(fileName: string) {
 function isTextFileName(fileName: string) {
   const lowered = fileName.toLowerCase();
   return (
+    lowered.endsWith(".txt") ||
     lowered.endsWith(".md") ||
     lowered.endsWith(".markdown") ||
     lowered.endsWith(".text") ||
@@ -1272,8 +1273,10 @@ function renderUserPromptInline(content: string) {
   });
 }
 
+const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8001";
+
 export default function Page() {
-  const [apiBase, setApiBase] = useState("http://127.0.0.1:8001");
+  const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
   const [toolRegistry, setToolRegistry] = useState<AnalysisResponse["tool_registry"]>([]);
   const [toolRegistryLoading, setToolRegistryLoading] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -1288,6 +1291,7 @@ export default function Page() {
   const [dicomAnalysis, setDicomAnalysis] = useState<DicomSourceResponse | null>(null);
   const [spreadsheetAnalysis, setSpreadsheetAnalysis] = useState<SpreadsheetSourceResponse | null>(null);
   const [textAnalysis, setTextAnalysis] = useState<TextSourceResponse | null>(null);
+  const [textSourceContent, setTextSourceContent] = useState("");
   const [imageAnalysis, setImageAnalysis] = useState<ImageSourceResponse | null>(null);
   const [niftiAnalysis, setNiftiAnalysis] = useState<any>(null);
   const [fhirAnalysis, setFhirAnalysis] = useState<FhirSourceResponse | null>(null);
@@ -1324,6 +1328,7 @@ export default function Page() {
   const [directLdblockshowResult, setDirectLdblockshowResult] = useState<AnalysisResponse["ldblockshow_result"] | null>(null);
   const [directQqmanResult, setDirectQqmanResult] = useState<RPlotResponse | null>(null);
   const [directPrsPrepResult, setDirectPrsPrepResult] = useState<PrsPrepResponse | null>(null);
+  const [directParkinsonPlanResult, setDirectParkinsonPlanResult] = useState<any>(null);
   const [latestPrsPrepResult, setLatestPrsPrepResult] = useState<PrsPrepResponse | null>(null);
   const [annotationScope, setAnnotationScope] = useState<"representative" | "all">("representative");
   const [annotationLimit, setAnnotationLimit] = useState("200");
@@ -1688,6 +1693,7 @@ export default function Page() {
       setSpreadsheetAnalysis(null);
     } else if (guessedSourceType === "text") {
       setTextAnalysis(null);
+      setTextSourceContent("");
     } else if (guessedSourceType === "image") {
       setImageAnalysis(null);
     } else if (guessedSourceType === "nifti") {
@@ -1780,6 +1786,11 @@ export default function Page() {
           setPendingUploadRole("default");
           return;
         }
+        try {
+          setTextSourceContent(await file.text());
+        } catch {
+          setTextSourceContent("");
+        }
         setActiveSource({
           source_type: "text",
           file_name: payload.file_name,
@@ -1788,7 +1799,7 @@ export default function Page() {
         setStatus("Text review ready");
         addMessage({
           role: "assistant",
-          content: `Text source \`${file.name}\` is loaded and reviewed automatically. Open the Studio text review card to inspect the rendered document.`,
+          content: `Text source \`${file.name}\` is loaded and ready for grounded chat or compatible tools.`,
         });
         event.target.value = "";
         setPendingUploadRole("default");
@@ -3033,6 +3044,95 @@ export default function Page() {
         addMessage({ role: "assistant", content: `@help 조회 중 오류가 발생했습니다: ${message}` });
       }
       return;
+    }
+
+    // @parkinson_plan intercept — works without a genomics source file
+    {
+      const pkMatch = text.match(/^@parkinson_plan(?:\s+([\s\S]*))?$/i);
+      if (pkMatch) {
+        addMessage({ role: "user", content: text });
+        setComposerText("");
+        const remainder = (pkMatch[1] ?? "").trim();
+        const keyAliases: Record<string, string[]> = {
+          subjective: ["subjective", "subj", "s"],
+          objective: ["objective", "obj", "o"],
+          assessment: ["assessment", "assess", "a"],
+          patient_id: ["patient_id", "patient", "id"],
+          threshold: ["threshold"],
+          retrieve_patients: ["retrieve_patients", "top_k", "topk"],
+        };
+        const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const aliasesFor = (key: string) => (keyAliases[key] ?? [key]).map(escapePattern).sort((a, b) => b.length - a.length);
+        const parseKV = (raw: string, key: string): string => {
+          const keyPattern = aliasesFor(key).join("|");
+          const otherKeys = Object.keys(keyAliases)
+            .filter((item) => item !== key)
+            .flatMap((item) => aliasesFor(item))
+            .join("|");
+          const m = raw.match(new RegExp(`(?:^|\\s)(?:${keyPattern})\\s*[=:]\\s*"([^"]*)"`, "i")) ||
+                    raw.match(new RegExp(`(?:^|\\s)(?:${keyPattern})\\s*[=:]\\s*([\\s\\S]*?)(?=\\s+(?:${otherKeys})\\s*[=:]|$)`, "i"));
+          return m ? m[1].trim() : "";
+        };
+        const commandHasSoap =
+          Boolean(parseKV(remainder, "subjective") || parseKV(remainder, "objective") || parseKV(remainder, "assessment"));
+        let uploadedSoapText = textSourceContent.trim();
+        if (!uploadedSoapText && attachedSourceType === "text" && attachedFile) {
+          try {
+            uploadedSoapText = (await attachedFile.text()).trim();
+            setTextSourceContent(uploadedSoapText);
+          } catch {
+            uploadedSoapText = "";
+          }
+        }
+        const soapText = commandHasSoap ? remainder : uploadedSoapText;
+        const parsedSubjective = parseKV(remainder, "subjective") || parseKV(soapText, "subjective");
+        const parsedObjective = parseKV(remainder, "objective") || parseKV(soapText, "objective");
+        const parsedAssessment = parseKV(remainder, "assessment") || parseKV(soapText, "assessment");
+        const hasStructuredSoap = Boolean(parsedSubjective || parsedObjective || parsedAssessment);
+        const payload: Record<string, any> = {
+          subjective: parsedSubjective || (!commandHasSoap && !hasStructuredSoap ? soapText : ""),
+          objective: parsedObjective,
+          assessment: parsedAssessment,
+          patient_id: parseKV(remainder, "patient_id") || parseKV(soapText, "patient_id") || "unknown",
+          threshold: parseFloat(parseKV(remainder, "threshold") || parseKV(soapText, "threshold") || "0.7"),
+          retrieve_patients: parseInt(parseKV(remainder, "retrieve_patients") || parseKV(soapText, "retrieve_patients") || "4", 10),
+        };
+        if (!payload.subjective) {
+          addMessage({
+            role: "assistant",
+            content:
+              "`@parkinson_plan`을 실행하려면 먼저 SOAP note가 담긴 txt 파일을 업로드하거나, 명령어 뒤에 SOAP 노트를 입력해 주세요.\n\n예시:\n```\n@parkinson_plan\nsubjective: 손 떨림과 보행 장애가 3개월째 지속됨\nobjective: UPDRS 25점\nassessment: Parkinson's disease stage 2\n```",
+          });
+          return;
+        }
+        setStatus("Running Parkinson plan...");
+        try {
+          const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/parkinson/plan`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error(await response.text());
+          const result = await response.json();
+          setDirectParkinsonPlanResult(result);
+          activateStudioFromPayload({ requested_view: "parkinson_plan" }, "parkinson_plan", undefined);
+          setStatus("Parkinson plan ready");
+          addMessage({
+            role: "assistant",
+            content:
+              `Enhanced RAG 처방 계획이 완료되었습니다 (환자 ID: \`${result.patient_id}\`).\n\n` +
+              `- 최종 처방 약물: ${result.final_prescription?.length ?? 0}개\n` +
+              `- 집중 분석 영역: ${Object.keys(result.focus_areas ?? {}).join(", ") || "없음"}\n\n` +
+              (result.doctor_summary ? `## Doctor Summary\n\n${result.doctor_summary}\n\n` : "") +
+              "Studio 카드에서 상세 처방 내용을 확인하세요.",
+          });
+        } catch (caught) {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          setStatus("Parkinson plan failed");
+          addMessage({ role: "assistant", content: `\`@parkinson_plan\` 실행 중 오류가 발생했습니다: ${message}` });
+        }
+        return;
+      }
     }
 
     if (!hasAttachedSource) {
@@ -4283,6 +4383,7 @@ export default function Page() {
   const samtoolsResultForStudio = rawQcAnalysis?.samtools_result ?? directSamtoolsResult;
   const qqmanResultForStudio = summaryStatsAnalysis?.qqman_result ?? directQqmanResult;
   const prsPrepResultForStudio = summaryStatsAnalysis?.prs_prep_result ?? directPrsPrepResult ?? null;
+  const parkinsonPlanResultForStudio = directParkinsonPlanResult ?? null;
   const hasStudioState = Boolean(
     analysis ||
       rawQcAnalysis ||
@@ -4299,7 +4400,8 @@ export default function Page() {
       plinkResultForStudio ||
       liftoverResultForStudio ||
       ldblockshowResultForStudio ||
-      samtoolsResultForStudio,
+      samtoolsResultForStudio ||
+      parkinsonPlanResultForStudio,
   );
   // Multimodal: accumulate studio cards from ALL active sources.
   const studioCards: Array<{ id: StudioView; title: string; subtitle: string }> = (() => {
@@ -4470,6 +4572,7 @@ export default function Page() {
       if (qqmanResultForStudio) cards.push({ id: "qqman" as StudioView, title: "qqman Plots", subtitle: "Manhattan and QQ visualization" });
       if (prsPrepResultForStudio) cards.push({ id: "prs_prep" as StudioView, title: "PRS Prep Review", subtitle: "Build check, harmonization, and score-file readiness" });
     }
+    if (parkinsonPlanResultForStudio) cards.push({ id: "parkinson_plan" as StudioView, title: "Parkinson Plan", subtitle: "Enhanced RAG medication prescription" });
 
     return cards;
   })();
@@ -4492,6 +4595,7 @@ export default function Page() {
     plinkResultForStudio,
     liftoverResultForStudio,
     ldblockshowResultForStudio,
+    parkinsonPlanResultForStudio,
     summaryStatsGridRows,
     summaryStatsRowsLoading,
     summaryStatsHasMore,
@@ -5124,7 +5228,9 @@ export default function Page() {
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
                 placeholder={
-                  hasAttachedSource
+                  textSourceContent
+                    ? "Type @parkinson_plan to use the uploaded SOAP note"
+                    : hasAttachedSource
                     ? "Start typing a follow-up question..."
                     : "Upload a source file to begin"
                 }
