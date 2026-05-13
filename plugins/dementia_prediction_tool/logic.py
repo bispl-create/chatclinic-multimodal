@@ -6,8 +6,8 @@ accepts ``{"clinical_notes": [str, ...]}`` and returns ``predictions``,
 ``summary``, and ``elapsed_sec``.
 
 The target URL is configurable via the ``DEMENTIA_API_URL`` environment
-variable (default ``http://127.0.0.1:8020``). Use an SSH tunnel when the GPU
-server is remote.
+variable. When it is not set, ChatClinic passes its current backend base URL
+and this tool calls the in-process ``/api/v1/dementia/predict`` endpoint.
 """
 from __future__ import annotations
 
@@ -17,11 +17,28 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEMENTIA_API_URL = os.environ.get("DEMENTIA_API_URL", "http://127.0.0.1:8020")
+
+def _resolve_api_base(payload: dict[str, object]) -> str:
+    configured = str(os.environ.get("DEMENTIA_API_URL") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+
+    explicit = str(payload.get("dementia_api_url") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+
+    chatclinic_base = str(payload.get("chatclinic_api_base") or payload.get("api_base") or "").strip()
+    if chatclinic_base:
+        return f"{chatclinic_base.rstrip('/')}/api/v1/dementia"
+
+    raise RuntimeError(
+        "Dementia API URL is not configured. Start ChatClinic through the web UI so "
+        "`chatclinic_api_base` is passed, or set DEMENTIA_API_URL explicitly."
+    )
 
 
-def _call_predict(clinical_notes: list[str]) -> dict:
-    url = f"{DEMENTIA_API_URL.rstrip('/')}/predict"
+def _call_predict(clinical_notes: list[str], api_base: str) -> dict:
+    url = f"{api_base.rstrip('/')}/predict"
     body = json.dumps({"clinical_notes": clinical_notes}).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -52,7 +69,8 @@ def execute(payload: dict[str, object]) -> dict[str, object]:
     if not clinical_text:
         raise ValueError("The uploaded clinical note is empty.")
 
-    api_result = _call_predict([clinical_text])
+    api_base = _resolve_api_base(payload)
+    api_result = _call_predict([clinical_text], api_base)
     predictions = api_result.get("predictions", [])
 
     return {
@@ -62,6 +80,6 @@ def execute(payload: dict[str, object]) -> dict[str, object]:
             "num_patients": len(predictions),
             "inference_time_sec": api_result.get("elapsed_sec"),
             "model": "Dementia-R1 (Qwen2 fine-tuned)",
-            "inference_server": DEMENTIA_API_URL,
+            "inference_server": api_base,
         },
     }

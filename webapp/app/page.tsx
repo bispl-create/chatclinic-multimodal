@@ -2470,6 +2470,7 @@ export default function Page() {
         ...options,
         text_path: preAnalysisSource.source_path,
         file_name: preAnalysisSource.file_name,
+        chatclinic_api_base: apiBase.replace(/\/$/, ""),
       };
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/${alias}/run`, {
         method: "POST",
@@ -5228,9 +5229,7 @@ export default function Page() {
                 onCompositionStart={() => setIsComposing(true)}
                 onCompositionEnd={() => setIsComposing(false)}
                 placeholder={
-                  textSourceContent
-                    ? "Type @parkinson_plan to use the uploaded SOAP note"
-                    : hasAttachedSource
+                  hasAttachedSource
                     ? "Start typing a follow-up question..."
                     : "Upload a source file to begin"
                 }

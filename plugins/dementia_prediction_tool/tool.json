@@ -33,7 +33,7 @@
     "requires_gpu": false,
     "allow_cpu_fallback": true,
     "estimated_runtime_sec": 10,
-    "notes": "Runs on CPU locally \u2014 sends requests to a remote GPU server for model inference via the DEMENTIA_API_URL environment variable (default http://127.0.0.1:8020)."
+    "notes": "Runs on CPU locally \u2014 sends requests to the active ChatClinic backend dementia endpoint by default. Set DEMENTIA_API_URL only when using a separate remote inference server."
   },
   "direct_chat": {
     "source_type": "text",
@@ -47,7 +47,7 @@
     "summary": "Predict dementia likelihood from uploaded clinical notes using the Dementia-R1 model.",
     "examples": ["@dementia_prediction"],
     "notes": [
-      "Requires a running Dementia-R1 inference API reachable at DEMENTIA_API_URL (default http://127.0.0.1:8020). Use an SSH tunnel if the GPU server is remote.",
+      "By default, ChatClinic routes inference through the active backend at /api/v1/dementia/predict. Set DEMENTIA_API_URL only when using a separate remote inference server.",
       "Upload a .txt or .md clinical note first, then run @dementia_prediction in Chat."
     ]
   }

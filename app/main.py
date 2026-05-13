@@ -533,6 +533,18 @@ def run_registered_tool_endpoint(alias: str, request: ToolRunRequest) -> ToolRun
     return ToolRunResponse(tool_name=tool_name, alias=resolved_alias, result=result, studio=studio)
 
 
+@app.post("/api/v1/dementia/predict")
+def run_dementia_predict(request: dict[str, object]) -> dict[str, object]:
+    """Run Dementia-R1 inference under the active ChatClinic backend origin."""
+    try:
+        from plugins.dementia_prediction_tool.server.api_server import PredictRequest, predict
+
+        response = predict(PredictRequest(**request))
+        return response.model_dump()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Dementia prediction failed: {exc}") from exc
+
+
 @app.get("/api/v1/files")
 def get_output_file(path: str = Query(..., description="Absolute path to a generated output file")) -> FileResponse:
     file_path = Path(path).resolve()
