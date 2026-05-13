@@ -72,6 +72,8 @@ from app.models import (
     ToolInfo,
     ToolRunRequest,
     ToolRunResponse,
+    ParkinsonPlanRequest,
+    ParkinsonPlanResponse,
 )
 from app.services.chat import (
     answer_analysis_chat,
@@ -95,6 +97,7 @@ from app.services.source_bootstrap import (
     run_bootstrap_analysis,
 )
 from app.services.source_registry import (
+    SourceRegistry,
     detect_source_registration,
     infer_source_file_kind,
     source_bootstrap_type,
@@ -139,6 +142,8 @@ app.add_middleware(
         "http://localhost:3002",
         "http://127.0.0.1:3003",
         "http://localhost:3003",
+        "http://127.0.0.1:3004",
+        "http://localhost:3004",
         "http://127.0.0.1:4173",
         "http://localhost:4173",
     ],
@@ -304,6 +309,15 @@ def _safe_fastqc_artifact_path(path_str: str) -> Path:
 
 
 def _resolve_source_upload(filename: str, expected_source_type: str | None = None) -> tuple[str, str]:
+    if expected_source_type is not None:
+        registration = SourceRegistry.get(expected_source_type)
+        if registration is not None:
+            lowered = filename.strip().lower()
+            for suffix in registration.get("suffixes") or []:
+                suffix_text = str(suffix).strip().lower()
+                if suffix_text and lowered.endswith(suffix_text):
+                    return expected_source_type, filename
+
     detected = detect_source_registration(filename)
     if detected is None:
         # When a dedicated upload endpoint already knows the source type,
@@ -522,6 +536,18 @@ def run_registered_tool_endpoint(alias: str, request: ToolRunRequest) -> ToolRun
     direct_chat = tool_direct_chat_metadata(manifest)
     studio = direct_chat.get("studio") if isinstance(direct_chat.get("studio"), dict) else None
     return ToolRunResponse(tool_name=tool_name, alias=resolved_alias, result=result, studio=studio)
+
+
+@app.post("/api/v1/dementia/predict")
+def run_dementia_predict(request: dict[str, object]) -> dict[str, object]:
+    """Run Dementia-R1 inference under the active ChatClinic backend origin."""
+    try:
+        from plugins.dementia_prediction_tool.server.api_server import PredictRequest, predict
+
+        response = predict(PredictRequest(**request))
+        return response.model_dump()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Dementia prediction failed: {exc}") from exc
 
 
 @app.get("/api/v1/files")
@@ -908,6 +934,16 @@ async def run_prs_prep(request: PrsPrepRequest) -> PrsPrepResponse:
         request.model_dump(),
         PrsPrepResponse,
         result_key="prs_prep_result",
+    )
+
+
+@app.post("/api/v1/parkinson/plan", response_model=ParkinsonPlanResponse)
+def run_parkinson_plan(request: ParkinsonPlanRequest) -> ParkinsonPlanResponse:
+    """Enhanced RAG medication planning for a single Parkinson's patient (non-MIMIC, SOAP-based)."""
+    return _run_registered_tool_model(
+        "parkinson_plan_tool",
+        request.model_dump(),
+        ParkinsonPlanResponse,
     )
 
 

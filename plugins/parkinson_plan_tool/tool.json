@@ -1,0 +1,30 @@
+{
+  "name": "parkinson_plan_tool",
+  "entrypoint": "plugins.parkinson_plan_tool.logic:execute",
+  "description": "Enhanced RAG medication planning for Parkinson's disease patients. Extracts focus keywords from SOAP notes, retrieves similar patients via FAISS, performs per-focus tendency analysis, generates an initial prescription, and refines it with a Delta Verifier anchored on active medication history.",
+  "task": "parkinson-plan",
+  "modality": "clinical",
+  "approval_required": false,
+  "source": "plugin",
+  "routing": {
+    "trigger_keywords": ["parkinson", "parkinsons_plan", "parkinson_plan", "pd_plan"]
+  },
+  "direct_chat": {
+    "endpoint": "parkinson-plan",
+    "requested_view": "parkinson_plan",
+    "studio": {"renderer": "parkinson_plan"}
+  },
+  "help": {
+    "summary": "Enhanced RAG prescription generation for Parkinson's disease (SOAP-based, non-MIMIC).",
+    "options": [
+      {"name": "subjective", "type": "str", "description": "Subjective section of the SOAP note"},
+      {"name": "objective", "type": "str", "description": "Objective section of the SOAP note"},
+      {"name": "assessment", "type": "str", "description": "Assessment section of the SOAP note"},
+      {"name": "recent_visit_history", "type": "list", "description": "List of recent visit dicts with prescription field"},
+      {"name": "patient_id", "type": "str", "description": "Patient identifier (used to exclude self from RAG)"},
+      {"name": "threshold", "type": "float", "description": "FAISS similarity threshold (default 0.7)"},
+      {"name": "retrieve_patients", "type": "int", "description": "Number of similar patients per focus query (default 7)"}
+    ],
+    "examples": ["@parkinson_plan help", "@parkinson_plan"]
+  }
+}

@@ -54,6 +54,9 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 - `@prs_prep` — Build check, harmonization, score-file preparation
 - Auto: Summary Stats Review (column detection, schema mapping)
 
+**Parkinson's Disease (Clinical)**
+- `@parkinson_plan subjective: "..." objective: "..." assessment: "..."` — Enhanced RAG medication planning for a Parkinson's patient. No source file required; provide SOAP note sections inline.
+
 ### Tips
 
 - `@toolname help` — Show detailed options for any tool
@@ -122,6 +125,7 @@ Later tools should include:
 - Use `snpeff_execution_tool` when the user explicitly asks to run SnpEff on a local VCF and the required local Java runtime, jar, and genome database are available.
 - Use `ldblockshow_execution_tool` when the user explicitly asks for LD heatmap or block visualization over a region and provides or implies a concrete locus in `chr:start:end` format.
 - Use `samtools_execution_tool` when the user explicitly asks for post-alignment QC or BAM/SAM/CRAM inspection such as `flagstat`, `idxstats`, or `samtools stats`.
+- Use `parkinson_plan_tool` when the user uses `@parkinson_plan` with SOAP note content for Parkinson's disease medication planning. No source file is required — the tool works on inline text.
 - Use `cadd_lookup_tool` to enrich shortlisted annotated variants with local CADD scores when a build-matched local table is available.
 - Use `revel_lookup_tool` to enrich shortlisted missense variants with local REVEL scores when a matching local segment file is available.
 - Use `roh_analysis_tool` when ROH/recessive review is shown or requested.

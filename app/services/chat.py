@@ -1122,6 +1122,17 @@ def _extract_openai_output_text(result: dict[str, Any]) -> str:
     return "\n".join(texts).strip()
 
 
+def _openai_headers(api_key: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    org_key = os.environ.get("OPENAI_ORG_ID") or os.environ.get("OPENAI_ORG_KEY")
+    if org_key:
+        headers["OpenAI-Organization"] = org_key
+    return headers
+
+
 def _call_openai_for_source(
     source_type: str,
     payload: AnalysisChatRequest | DicomChatRequest | RawQcChatRequest | SpreadsheetChatRequest | SummaryStatsChatRequest | TextChatRequest,
@@ -1157,10 +1168,7 @@ def _call_openai_for_source(
     }
     request = urllib.request.Request(
         "https://api.openai.com/v1/responses",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_openai_headers(api_key),
         data=json.dumps(body).encode("utf-8"),
         method="POST",
     )
@@ -2139,10 +2147,7 @@ def _call_openai_multimodal(payload: MultimodalChatRequest) -> MultimodalChatRes
 
     request = urllib.request.Request(
         "https://api.openai.com/v1/responses",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_openai_headers(api_key),
         data=json.dumps(body).encode("utf-8"),
         method="POST",
     )
