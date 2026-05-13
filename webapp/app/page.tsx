@@ -2643,10 +2643,6 @@ export default function Page() {
       });
       return;
     }
-      });
-      return;
-    }
-
     // No frontend handler matched — if an analysis is loaded, let the backend chat handler try
     if (analysis) {
       await handleAskAnalysisQuestion(`@${alias}${remainder ? " " + remainder : ""}`, analysis);
