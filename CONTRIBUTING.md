@@ -13,9 +13,8 @@ Before making changes, read:
 ```bash
 git clone https://github.com/bispl-create/chatclinic-multimodal.git
 cd chatclinic-multimodal
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate chatclinic
 ```
 
 2. Install frontend dependencies:

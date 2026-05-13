@@ -16,7 +16,7 @@ def _load_workbook_tables(spreadsheet_path: str) -> tuple[str, list[dict[str, An
         from openpyxl import load_workbook
     except Exception as exc:
         raise RuntimeError(
-            "openpyxl is required for spreadsheet intake. Install requirements.txt before using spreadsheet review."
+            "openpyxl is required for spreadsheet intake. Create the conda environment from environment.yml before using spreadsheet review."
         ) from exc
 
     workbook = load_workbook(filename=spreadsheet_path, read_only=True, data_only=True)

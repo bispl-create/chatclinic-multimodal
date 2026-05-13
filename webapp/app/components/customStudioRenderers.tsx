@@ -772,10 +772,118 @@ function FhirBrowserCard({ analysis }: { analysis: any }) {
   );
 }
 
+function CarotidPlaqueCard({
+  analysis,
+  components,
+}: {
+  analysis: any;
+  components: StudioRendererBuilderArgs["components"];
+}) {
+  const { StudioMetricGrid, WarningListCard } = components;
+  const artifacts = analysis?.artifacts ?? {};
+  const masks = artifacts.segmentation_masks ?? {};
+  const classification = artifacts.classification ?? {};
+  const longMask = masks.longitudinal ?? {};
+  const transMask = masks.transverse ?? {};
+  const label = String(classification.label ?? "unknown");
+  const probability = typeof classification.probability === "number" ? classification.probability : null;
+  const isHighRisk = classification.cls === 1;
+
+  return (
+    <section className="notebookPanel studioCanvasPanel">
+      <div className="notebookHeader">
+        <h2>Carotid Plaque Analysis</h2>
+        <span className="pill">{analysis?.file_name ?? "carotid.h5"}</span>
+      </div>
+      <div className="studioCanvasBody">
+        <StudioMetricGrid
+          items={[
+            { label: "Classification", value: isHighRisk ? "High-risk" : "Low-risk", tone: isHighRisk ? "warn" : "good" },
+            { label: "RADS", value: isHighRisk ? "3–4" : "2", tone: isHighRisk ? "warn" : "good" },
+            { label: "Probability", value: probability != null ? `${(probability * 100).toFixed(1)}%` : "n/a", tone: "neutral" },
+            { label: "File", value: String(analysis?.file_name ?? "n/a"), tone: "neutral" },
+          ]}
+        />
+
+        <div className="resultSectionSplit" style={{ gridTemplateColumns: "1fr 1fr", alignItems: "start" }}>
+          <article className="miniCard">
+            <h3>Longitudinal view</h3>
+            {longMask.image_data_url ? (
+              <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
+                <img
+                  src={longMask.image_data_url}
+                  alt="Longitudinal segmentation mask"
+                  style={{ maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", border: "1px solid var(--border-color, #ddd)" }}
+                />
+              </div>
+            ) : (
+              <p className="emptyState">No longitudinal mask is available.</p>
+            )}
+            {longMask.shape?.length ? (
+              <p className="summaryStatsGridMeta">
+                Shape: {longMask.shape.join(" × ")} px
+                {Array.isArray(longMask.unique_labels) ? ` · Labels: ${longMask.unique_labels.join(", ")}` : ""}
+              </p>
+            ) : null}
+          </article>
+
+          <article className="miniCard">
+            <h3>Transverse view</h3>
+            {transMask.image_data_url ? (
+              <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
+                <img
+                  src={transMask.image_data_url}
+                  alt="Transverse segmentation mask"
+                  style={{ maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", border: "1px solid var(--border-color, #ddd)" }}
+                />
+              </div>
+            ) : (
+              <p className="emptyState">No transverse mask is available.</p>
+            )}
+            {transMask.shape?.length ? (
+              <p className="summaryStatsGridMeta">
+                Shape: {transMask.shape.join(" × ")} px
+                {Array.isArray(transMask.unique_labels) ? ` · Labels: ${transMask.unique_labels.join(", ")}` : ""}
+              </p>
+            ) : null}
+          </article>
+        </div>
+
+        <article className="miniCard">
+          <h3>Classification result</h3>
+          <div className="variantTableWrap summaryStatsTableWrap">
+            <table className="variantTable summaryStatsTable">
+              <tbody>
+                <tr><th>Label</th><td>{label}</td></tr>
+                <tr><th>Probability</th><td>{probability != null ? probability.toFixed(4) : "n/a"}</td></tr>
+                <tr><th>RADS category</th><td>{isHighRisk ? "RADS 3-4 (High-risk)" : "RADS 2 (Low-risk)"}</td></tr>
+                <tr><th>Segmentation classes</th><td>0 = background, 1 = plaque (red), 2 = vessel (blue)</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        {analysis?.grounded_summary ? (
+          <article className="miniCard">
+            <h3>Summary</h3>
+            <p style={{ fontSize: "0.875rem", lineHeight: "1.6" }}>{analysis.grounded_summary}</p>
+          </article>
+        ) : null}
+
+        <WarningListCard
+          warnings={Array.isArray(analysis?.warnings) ? analysis.warnings : []}
+          emptyLabel="No carotid analysis warnings."
+        />
+      </div>
+    </section>
+  );
+}
+
 export function buildCustomStudioRendererRegistry({
   activeStudioView,
   apiBase,
   analysis,
+  parkinsonPlanResultForStudio,
   prsPrepResultForStudio,
   plinkResultForStudio,
   plinkConfig,
@@ -790,6 +898,7 @@ export function buildCustomStudioRendererRegistry({
   imageAnalysis,
   niftiAnalysis,
   fhirAnalysis,
+  carotidAnalysis,
   candidateVariants,
   searchedAnnotations,
   setSelectedAnnotationIndex,
@@ -836,6 +945,10 @@ export function buildCustomStudioRendererRegistry({
     fhir_browser: () =>
       fhirAnalysis ? (
         <FhirBrowserCard analysis={fhirAnalysis} />
+      ) : null,
+    carotid_review: () =>
+      carotidAnalysis ? (
+        <CarotidPlaqueCard analysis={carotidAnalysis} components={components} />
       ) : null,
     cohort_browser: () =>
       spreadsheetAnalysis ? (
@@ -885,5 +998,65 @@ export function buildCustomStudioRendererRegistry({
       analysis ? (
         <section className="notebookPanel studioCanvasPanel"><div className="notebookHeader"><h2>Annotations</h2></div><div className="studioCanvasBody"><div className="oeAnnotationControls"><label className="field"><span>Search gene / consequence / ClinVar</span><input value={annotationSearch} onChange={(event) => { setAnnotationSearch(event.target.value); setSelectedAnnotationIndex(0); }} placeholder="e.g. PALMD, missense_variant, benign" /></label><label className="field"><span>Annotation dropdown</span><select value={safeSelectedIndex} onChange={(event) => setSelectedAnnotationIndex(Number(event.target.value))} disabled={!searchedAnnotations.length}>{searchedAnnotations.length ? searchedAnnotations.map((item: any, index: number) => <option key={`${item.contig}-${item.pos_1based}-${item.rsid}-${index}`} value={index}>{item.gene || "Unknown"} | {item.contig}:{item.pos_1based} | {item.rsid || "no-rsID"} | {item.consequence}</option>) : <option value={0}>No annotations matched the search</option>}</select></label></div>{selectedAnnotation ? <AnnotationDetailCard item={selectedAnnotation} /> : <p className="emptyState">No annotation is available for the current selection.</p>}</div></section>
       ) : null,
+    parkinson_plan: () => {
+      const pk = parkinsonPlanResultForStudio;
+      if (!pk) return null;
+      const finalRx: string[] = Array.isArray(pk.final_prescription) ? pk.final_prescription : [];
+      const auditLog: any[] = Array.isArray(pk.audit_log) ? pk.audit_log : [];
+      const focusAreas: Record<string, string[]> = pk.focus_areas && typeof pk.focus_areas === "object" ? pk.focus_areas : {};
+      const tendencies: any[] = Array.isArray(pk.rag_tendency_by_focus) ? pk.rag_tendency_by_focus : [];
+      const doctorSummary = typeof pk.doctor_summary === "string" ? pk.doctor_summary.trim() : "";
+      return (
+        <section className="notebookPanel studioCanvasPanel">
+          <div className="notebookHeader"><h2>Parkinson Plan</h2><span className="pill">Patient: {pk.patient_id}</span></div>
+          <div className="studioCanvasBody">
+            <div className="resultMetricGrid">
+              <MetricTile label="Final drugs" value={String(finalRx.length)} tone="good" />
+              <MetricTile label="Focus areas" value={String(Object.keys(focusAreas).length)} tone="neutral" />
+              <MetricTile label="RAG tendencies" value={String(tendencies.length)} tone="neutral" />
+              <MetricTile label="Audit entries" value={String(auditLog.length)} tone="neutral" />
+            </div>
+            <div className="resultList">
+              <article className="resultListItem resultListStatic">
+                <strong>Final Prescription</strong>
+                {finalRx.length ? finalRx.map((drug, i) => <span key={i}>{drug}</span>) : <span>No prescription generated.</span>}
+              </article>
+              {doctorSummary && (
+                <article className="resultListItem resultListStatic">
+                  <strong>Doctor Summary</strong>
+                  <pre className="codeBlock" style={{ whiteSpace: "pre-wrap", fontSize: "0.75rem" }}>{doctorSummary}</pre>
+                </article>
+              )}
+              {Object.entries(focusAreas).length > 0 && (
+                <article className="resultListItem resultListStatic">
+                  <strong>Extracted Focus Areas</strong>
+                  {Object.entries(focusAreas).map(([section, keywords]) => (
+                    <span key={section}><em>{section}:</em> {Array.isArray(keywords) ? keywords.join(", ") : String(keywords)}</span>
+                  ))}
+                </article>
+              )}
+              {tendencies.map((t: any, i: number) => (
+                <article key={i} className="resultListItem resultListStatic">
+                  <strong>Focus: {t.focus ?? `Area ${i + 1}`}</strong>
+                  <span>{typeof t.tendency === "string" ? t.tendency : JSON.stringify(t.tendency)}</span>
+                </article>
+              ))}
+              {auditLog.map((entry: any, i: number) => (
+                <article key={i} className="resultListItem resultListStatic">
+                  <strong>Audit [{i + 1}]</strong>
+                  <span>{typeof entry === "string" ? entry : JSON.stringify(entry)}</span>
+                </article>
+              ))}
+              {pk.draft_plan && (
+                <article className="resultListItem resultListStatic">
+                  <strong>Draft Plan</strong>
+                  <pre className="codeBlock" style={{ whiteSpace: "pre-wrap", fontSize: "0.75rem" }}>{pk.draft_plan}</pre>
+                </article>
+              )}
+            </div>
+          </div>
+        </section>
+      );
+    },
   };
 }

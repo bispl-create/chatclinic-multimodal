@@ -11,6 +11,9 @@ from app.models import (
     AnalysisResponse,
     AnalysisChatRequest,
     AnalysisChatResponse,
+    CarotidChatRequest,
+    CarotidChatResponse,
+    CarotidSourceResponse,
     DicomChatRequest,
     DicomChatResponse,
     DicomSourceResponse,
@@ -293,6 +296,7 @@ SOURCE_CHAT_RESPONSE_CLASS: dict[str, type] = {
     "image": ImageChatResponse,
     "nifti": NiftiChatResponse,
     "fhir": FhirChatResponse,
+    "carotid_hdf5": CarotidChatResponse,
 }
 
 
@@ -895,6 +899,29 @@ def _compact_nifti_context(payload: NiftiChatRequest) -> dict[str, object]:
     return context
 
 
+def _compact_carotid_context(payload: CarotidChatRequest) -> dict[str, object]:
+    a = payload.analysis
+    artifacts = a.artifacts or {}
+    cls = artifacts.get("classification") or {}
+    masks = artifacts.get("segmentation_masks") or {}
+    context: dict[str, object] = {
+        "file_name": a.file_name,
+        "file_kind": a.file_kind,
+        "grounded_summary": a.grounded_summary,
+        "classification": {
+            "label": cls.get("label"),
+            "probability": cls.get("probability"),
+            "cls": cls.get("cls"),
+        },
+        "segmentation_classes": masks.get("classes"),
+        "used_tools": a.used_tools,
+        "warnings": a.warnings[:12] if a.warnings else [],
+    }
+    if payload.studio_context:
+        context["studio_context"] = _flatten_studio_context(payload.studio_context)
+    return context
+
+
 CHAT_OPENAI_CONFIG: dict[str, dict[str, Any]] = {
     "vcf": {
         "context_label": "Analysis context JSON",
@@ -1043,6 +1070,23 @@ CHAT_OPENAI_CONFIG: dict[str, dict[str, Any]] = {
             "Answer from general knowledge only and ignore any uploaded FHIR context unless the user explicitly asks with a grounding trigger such as $studio."
         ),
     },
+    "carotid_hdf5": {
+        "context_label": "Carotid plaque analysis context JSON",
+        "compact_context_builder": _compact_carotid_context,
+        "grounded_system_prompt": (
+            "You are a carotid ultrasound analysis copilot. "
+            "The user explicitly requested grounded reasoning via a trigger such as $studio or $current analysis. "
+            "Answer only from the provided carotid plaque analysis context including segmentation results and RADS vulnerability classification. "
+            "Do not invent probability values or classification labels not present in the context. "
+            "Explain the RADS 2 (low-risk) vs RADS 3-4 (high-risk) distinction when relevant. "
+            "Be concise and clinically precise."
+        ),
+        "general_system_prompt": (
+            "You are a helpful general assistant. "
+            "The user did not request grounded carotid analysis reasoning. "
+            "Answer from general knowledge only and ignore any uploaded carotid analysis context unless the user explicitly asks with a grounding trigger such as $studio."
+        ),
+    },
 }
 
 
@@ -1076,6 +1120,17 @@ def _extract_openai_output_text(result: dict[str, Any]) -> str:
             if content.get("type") == "output_text":
                 texts.append(content.get("text", ""))
     return "\n".join(texts).strip()
+
+
+def _openai_headers(api_key: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    org_key = os.environ.get("OPENAI_ORG_ID") or os.environ.get("OPENAI_ORG_KEY")
+    if org_key:
+        headers["OpenAI-Organization"] = org_key
+    return headers
 
 
 def _call_openai_for_source(
@@ -1113,10 +1168,7 @@ def _call_openai_for_source(
     }
     request = urllib.request.Request(
         "https://api.openai.com/v1/responses",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_openai_headers(api_key),
         data=json.dumps(body).encode("utf-8"),
         method="POST",
     )
@@ -1802,6 +1854,10 @@ def answer_fhir_chat(payload: FhirChatRequest) -> FhirChatResponse:
     return _answer_source_chat("fhir", payload)
 
 
+def answer_carotid_chat(payload: CarotidChatRequest) -> CarotidChatResponse:
+    return _answer_source_chat("carotid_hdf5", payload)
+
+
 def answer_multimodal_chat(payload: MultimodalChatRequest) -> MultimodalChatResponse:
     """Handle chat with merged context from all active sources."""
     # Determine primary source for @tool routing
@@ -2091,10 +2147,7 @@ def _call_openai_multimodal(payload: MultimodalChatRequest) -> MultimodalChatRes
 
     request = urllib.request.Request(
         "https://api.openai.com/v1/responses",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_openai_headers(api_key),
         data=json.dumps(body).encode("utf-8"),
         method="POST",
     )

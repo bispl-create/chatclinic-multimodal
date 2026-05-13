@@ -9,7 +9,7 @@ This skill defines the intended orchestration layer for `ChatGenome`.
 
 ## Welcome message
 
-Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TIFF images, NIfTI volumes (.nii, .nii.gz), FHIR clinical bundles (.fhir.json, .fhir.xml, .ndjson), VCF (variant interpretation), Excel workbooks, text/markdown notes, FASTQ/BAM/SAM (raw sequencing QC), and summary statistics. The appropriate tools will run automatically after upload. Type `@help` for detailed tool options and usage tips.
+Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TIFF images, NIfTI volumes (.nii, .nii.gz), FHIR clinical bundles (.fhir.json, .fhir.xml, .ndjson), carotid ultrasound HDF5 files (.h5, .hdf5), VCF (variant interpretation), Excel workbooks, text/markdown notes, FASTQ/BAM/SAM (raw sequencing QC), and summary statistics. The appropriate tools will run automatically after upload. Type `@help` for detailed tool options and usage tips.
 
 ## Help message
 
@@ -28,6 +28,11 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 
 **FHIR Bundle**
 - Auto: FHIR Browser (patient, medications, labs, care team)
+
+**Carotid Ultrasound HDF5 (.h5, .hdf5)**
+- Auto: Carotid Plaque Analysis (segmentation masks, RADS vulnerability classification)
+- `@carotid` — Re-run carotid plaque segmentation and RADS classification
+- `@carotid help` — Show inference options (cls_threshold, resize_target)
 
 **Excel Workbook**
 - Auto: Cohort Browser (sheets, schema, missingness)
@@ -50,6 +55,9 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 - `@qqman` — Manhattan plot + QQ plot
 - `@prs_prep` — Build check, harmonization, score-file preparation
 - Auto: Summary Stats Review (column detection, schema mapping)
+
+**Parkinson's Disease (Clinical)**
+- `@parkinson_plan subjective: "..." objective: "..." assessment: "..."` — Enhanced RAG medication planning for a Parkinson's patient. No source file required; provide SOAP note sections inline.
 
 ### Tips
 
@@ -119,6 +127,7 @@ Later tools should include:
 - Use `snpeff_execution_tool` when the user explicitly asks to run SnpEff on a local VCF and the required local Java runtime, jar, and genome database are available.
 - Use `ldblockshow_execution_tool` when the user explicitly asks for LD heatmap or block visualization over a region and provides or implies a concrete locus in `chr:start:end` format.
 - Use `samtools_execution_tool` when the user explicitly asks for post-alignment QC or BAM/SAM/CRAM inspection such as `flagstat`, `idxstats`, or `samtools stats`.
+- Use `parkinson_plan_tool` when the user uses `@parkinson_plan` with SOAP note content for Parkinson's disease medication planning. No source file is required — the tool works on inline text.
 - Use `cadd_lookup_tool` to enrich shortlisted annotated variants with local CADD scores when a build-matched local table is available.
 - Use `revel_lookup_tool` to enrich shortlisted missense variants with local REVEL scores when a matching local segment file is available.
 - Use `roh_analysis_tool` when ROH/recessive review is shown or requested.
@@ -129,6 +138,7 @@ Later tools should include:
 - Use `clinical_coverage_tool` to summarize annotation completeness.
 - Use `filtering_view_tool` to populate filtering/triage overview metrics for the variant table.
 - Use `symbolic_alt_tool` to split symbolic ALT records into a dedicated review path.
+- Use `carotid_plaque_analysis_tool` when a carotid HDF5 source is uploaded or when the user requests `@carotid`. Returns segmentation masks (longitudinal and transverse) and RADS vulnerability classification.
 - Chat should refer to tool outputs and Studio summaries as the trusted state.
 - If a tool fails, preserve the prior direct implementation as fallback until migration is complete.
 

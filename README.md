@@ -161,11 +161,12 @@ def run(payload: dict) -> dict:
 ```bash
 git clone https://github.com/bispl-create/chatclinic-multimodal.git
 cd chatclinic-multimodal
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate chatclinic
 cp .env.example .env
 ```
+
+This environment targets Python 3.10, PyTorch 2.5.1, TorchVision 0.20.1, and CUDA 12.1 via the `pytorch` and `nvidia` conda channels.
 
 Set your API key in `.env`:
 

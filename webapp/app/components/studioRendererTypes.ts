@@ -16,6 +16,7 @@ export type StudioRendererBuilderArgs = {
   imageAnalysis: any;
   niftiAnalysis: any;
   fhirAnalysis: any;
+  carotidAnalysis: any;
   prsPrepResultForStudio: any;
   qqmanResultForStudio: any;
   samtoolsResultForStudio: any;
@@ -23,6 +24,7 @@ export type StudioRendererBuilderArgs = {
   plinkResultForStudio: any;
   liftoverResultForStudio: any;
   ldblockshowResultForStudio: any;
+  parkinsonPlanResultForStudio: any;
   summaryStatsGridRows: Array<Record<string, string>>;
   summaryStatsRowsLoading: boolean;
   summaryStatsHasMore: boolean;

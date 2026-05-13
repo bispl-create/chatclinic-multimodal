@@ -14,6 +14,22 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
+    "carotid_hdf5": {
+        "upload_label": "carotid ultrasound HDF5 file",
+        "dedicated_upload_detail": "Only HDF5 files containing paired longitudinal/transverse B-mode ultrasound datasets (.h5, .hdf5) are supported.",
+        "upload_endpoint": "carotid",
+        "bootstrap_source_type": "carotid_hdf5",
+        "chat_response_kind": "carotid_chat",
+        "default_result_kind": "carotid_analysis",
+        "default_requested_view": "carotid_review",
+        "studio_renderer": "carotid_review",
+        "studio_card_kind": "carotid_plaque_browser",
+        "studio_preview_kind": "segmentation_masks",
+        "initial_tools": ["carotid_plaque_analysis_tool"],
+        "capabilities": ["source_upload", "bootstrap_analysis", "grounded_chat"],
+        "suffixes": [".h5", ".hdf5"],
+        "file_kind_map": {".h5": "CAROTID_HDF5", ".hdf5": "CAROTID_HDF5"},
+    },
     "fhir": {
         "upload_label": "FHIR file",
         "dedicated_upload_detail": "Only FHIR JSON, FHIR XML, and NDJSON uploads are supported.",
@@ -101,7 +117,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "text": {
         "upload_label": "text note",
-        "dedicated_upload_detail": "Only Markdown and plain-text note uploads such as .md, .markdown, .text, .note, and .log are supported.",
+        "dedicated_upload_detail": "Only Markdown and plain-text note uploads such as .txt, .md, .markdown, .text, .note, and .log are supported.",
         "upload_endpoint": "text",
         "bootstrap_source_type": "text",
         "chat_response_kind": "text",
@@ -112,9 +128,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "studio_preview_kind": "markdown",
         "initial_tools": ["text_review_tool"],
         "capabilities": ["source_upload", "bootstrap_analysis", "grounded_chat"],
-        "suffixes": [".markdown", ".md", ".text", ".note", ".log"],
+        "suffixes": [".markdown", ".md", ".txt", ".text", ".note", ".log"],
         "file_kind_map": {
-            ".markdown": "TEXT", ".md": "TEXT", ".text": "TEXT",
+            ".markdown": "TEXT", ".md": "TEXT", ".txt": "TEXT", ".text": "TEXT",
             ".note": "TEXT", ".log": "TEXT",
         },
     },
