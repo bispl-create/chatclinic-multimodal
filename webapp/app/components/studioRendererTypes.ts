@@ -23,6 +23,7 @@ export type StudioRendererBuilderArgs = {
   plinkResultForStudio: any;
   liftoverResultForStudio: any;
   ldblockshowResultForStudio: any;
+  parkinsonPlanResultForStudio: any;
   summaryStatsGridRows: Array<Record<string, string>>;
   summaryStatsRowsLoading: boolean;
   summaryStatsHasMore: boolean;
