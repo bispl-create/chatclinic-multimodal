@@ -1,0 +1,40 @@
+name: multi_organ_seg
+display_name: "AMOS CT Multi-Organ Segmentation (MaskSAM · nnU-Net v2)"
+framework: nnunet
+input_type: 3d_ct
+input_channels: 1
+num_classes: 16
+output_format: nifti
+targets:
+  - Background
+  - Spleen
+  - Right Kidney
+  - Left Kidney
+  - Gallbladder
+  - Esophagus
+  - Liver
+  - Stomach
+  - Aorta
+  - Inferior Vena Cava
+  - Pancreas
+  - Right Adrenal Gland
+  - Left Adrenal Gland
+  - Duodenum
+  - Bladder
+  - Prostate/Uterus
+
+# nnUNet trained model coordinates -- must match folders under
+# ${paths.nnunet_results}/<dataset_name>/<trainer>__<plans>__<configuration>/fold_<fold>/
+dataset_name: Dataset052_AMOS22_OnlyCT
+trainer: MaskSAM_AMOS
+plans: nnUNetPlans
+configuration: 3d_fullres
+fold: 2
+checkpoint_name: multi_organ_seg.pth
+
+tile_step_size: 0.5
+use_mirroring: false         # SAM ViT-H is heavy; disable TTA mirroring to save memory
+perform_everything_on_device: true  # offload sliding-window buffers to CPU
+
+# Optional: override input volume; otherwise first file under imagesTs is used.
+# input_image: null

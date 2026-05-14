@@ -1,0 +1,17 @@
+name: brain_tumor_seg
+display_name: "Brain Tumor Segmentation (BraTS)"
+framework: monai_bundle
+bundle_name: brats_mri_segmentation
+architecture: SegResNet
+input_type: 3d_mri
+input_channels: 4
+num_classes: 3
+output_format: nifti
+targets:
+  - ET  # Enhancing Tumor (label 4)
+  - TC  # Tumor Core (label 1 + 4)
+  - WT  # Whole Tumor (label 1 + 2 + 4)
+dataset_task: Task01_BrainTumour
+roi_size: [224, 224, 144]
+sw_batch_size: 1
+overlap: 0.5

@@ -1,0 +1,30 @@
+# Pinned to match the current container environment.
+# torch/torchvision come from the CUDA wheel install step in the Dockerfile.
+#
+# The nnunetv2 package itself is vendored under ./vendor/ and picked up via
+# sys.path injection in infer.py, so it is NOT pip-installed. However its
+# runtime dependencies (imported by the nnUNet predictor code) must still be
+# installed — they are pinned below.
+omegaconf==2.3.0
+numpy==1.26.4
+nibabel==5.4.2
+scipy==1.13.1
+scikit-image==0.23.2
+scikit-learn==1.5.1
+SimpleITK==2.5.3
+pandas==2.3.3
+matplotlib==3.10.8
+tqdm==4.67.3
+dicom2nifti==2.6.2
+acvl-utils==0.2.5
+dynamic-network-architectures==0.3.1
+batchgenerators==0.25.1
+einops
+tifffile
+requests
+imagecodecs
+yacs
+seaborn
+diffdist
+fvcore
+batchgeneratorsv2
