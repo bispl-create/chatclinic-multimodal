@@ -4,7 +4,7 @@
   "task_type": "analysis-task",
   "modality": "medical-image",
   "approval_required": true,
-  "entrypoint": "run.py",
+  "entrypoint": "",
   "description": "CRITICAL: MUST USE THIS TOOL when the user explicitly mentions 'lcr_mpi_tool', 'GAN', 'I2SB', 'RDDM', or asks for 'image restoration', '\uc601\uc0c1 \ubcf5\uc6d0' of their uploaded medical images.",
   "parameters": {
     "type": "object",
