@@ -41,6 +41,13 @@ def tool_aliases(manifest: dict[str, object]) -> list[str]:
         if text and text not in aliases:
             aliases.append(text)
 
+    for alias in manifest.get("aliases", []):
+        add_alias(str(alias))
+    direct_chat = manifest.get("direct_chat")
+    if isinstance(direct_chat, dict):
+        for alias in direct_chat.get("aliases", []):
+            add_alias(str(alias))
+
     name = str(manifest.get("name") or "").strip().lower()
     if name:
         simplified = re.sub(r"^(gatk_|bcftools_)", "", name)

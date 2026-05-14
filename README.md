@@ -42,6 +42,7 @@ ChatClinic is a three-panel workspace: **Sources**, **Chat**, and **Studio**.
 | `@samtools [mode=qc]` | samtools flagstat / stats / idxstats | FASTQ/BAM/SAM |
 | `@qqman` | Manhattan plot + QQ plot | Summary statistics |
 | `@prs_prep` | Build check, harmonization, score-file preparation | Summary statistics |
+| `@ctreport` | MS-VLM brain CT report generation | NIfTI |
 
 Each tool supports `@toolname help` for detailed options.
 

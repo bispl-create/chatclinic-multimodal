@@ -484,6 +484,40 @@ class NiftiChatResponse(BaseChatResponse):
     analysis: Optional[NiftiSourceResponse] = None
 
 
+class MsVlmCtReportRequest(BaseModel):
+    nifti_path: str = Field(..., description="Absolute path to a preprocessed brain CT NIfTI volume.")
+    file_name: Optional[str] = Field(default=None, description="Optional display name for the source volume.")
+    cfg_path: Optional[str] = Field(default=None, description="Optional MS-VLM YAML config path.")
+    checkpoint_path: Optional[str] = Field(default=None, description="Optional MS-VLM checkpoint override under the tool's model/weights directory.")
+    vit_path: Optional[str] = Field(default=None, description="Optional DINO/vision checkpoint override under the tool's model/weights directory.")
+    gpu_id: int = Field(default=0, description="CUDA GPU id used by the MS-VLM model.")
+    prompt: Optional[str] = Field(default=None, description="Optional prompt containing <ImageHere>.")
+    prompt_index: int = Field(default=0, description="Prompt index used when prompt is omitted.")
+    max_new_tokens: int = 200
+    num_beams: int = 1
+    do_sample: bool = True
+    min_length: int = 1
+    top_p: float = 0.9
+    repetition_penalty: float = 1.2
+    length_penalty: float = 1.0
+    temperature: float = 0.5
+
+
+class MsVlmCtReportResponse(BaseModel):
+    tool: str = "ms_vlm_ct_report_tool"
+    source_nifti_path: str
+    file_name: str
+    report: str
+    raw_output: str = ""
+    prompt: str
+    cfg_path: str
+    checkpoint_path: Optional[str] = None
+    vit_path: list[str] = []
+    generation: dict[str, Any] = Field(default_factory=dict)
+    inference_time_seconds: float = 0.0
+    warnings: list[str] = []
+
+
 class FhirSourceResponse(BaseSourceResponse):
     source_fhir_path: Optional[str] = None
     file_name: str = ""
@@ -563,7 +597,7 @@ class WorkflowAgentResponse(BaseModel):
 
 
 class SourceReadyResponse(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "nifti", "fhir"]
     file_name: str
     source_path: str
     file_kind: Optional[str] = None
@@ -595,7 +629,7 @@ class MultimodalChatResponse(BaseChatResponse):
 
 
 class SourceChatRequest(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "nifti", "fhir"]
     question: str
     analysis_payload: dict[str, Any]
     history: list[ChatTurn] = []
@@ -603,7 +637,7 @@ class SourceChatRequest(BaseModel):
 
 
 class SourceChatResponse(BaseModel):
-    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "fhir"]
+    source_type: Literal["vcf", "raw_qc", "summary_stats", "text", "spreadsheet", "dicom", "image", "nifti", "fhir"]
     answer: str
     citations: list[str]
     used_fallback: bool

@@ -30,3 +30,11 @@ uploads/
 references/
 third_party/
 data/
+
+# Local vLLAMA CT report artifacts are distributed outside git.
+/vllama_ct_report_tool/samples/
+/vllama_ct_report_tool/weights/
+/plugins/vllama_ct_report_tool/model/samples/*
+!/plugins/vllama_ct_report_tool/model/samples/README.md
+/plugins/vllama_ct_report_tool/model/weights/*
+!/plugins/vllama_ct_report_tool/model/weights/README.md

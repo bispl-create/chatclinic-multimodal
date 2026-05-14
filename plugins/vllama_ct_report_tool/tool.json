@@ -1,0 +1,136 @@
+{
+  "name": "ms_vlm_ct_report_tool",
+  "entrypoint": "plugins.vllama_ct_report_tool.logic:execute",
+  "description": "Generate a brain CT report from a preprocessed 3D NIfTI volume using the MS-VLM CT-report generation model.",
+  "task": "brain-ct-report-generation",
+  "modality": "medical-image",
+  "approval_required": false,
+  "source": "plugin",
+  "aliases": [
+    "ctreport",
+    "ct-report",
+    "ms-vlm",
+    "brainct-report"
+  ],
+  "source_types": [
+    "nifti"
+  ],
+  "routing": {
+    "trigger_keywords": [
+      "ctreport",
+      "ct-report",
+      "ms-vlm",
+      "brainct",
+      "brainct-report"
+    ],
+    "execution_intents": [
+      "run",
+      "generate",
+      "report",
+      "diagnose",
+      "실행",
+      "생성"
+    ],
+    "requires_source_vcf": false,
+    "question_argument": "none",
+    "result_slot": "ct_report_result",
+    "execution_mode": "direct_endpoint"
+  },
+  "orchestration": {
+    "tool_kind": "execution",
+    "default_stage": "imaging-report",
+    "depends_on": [
+      "nifti_review_tool"
+    ],
+    "consumes": [
+      "nifti_path"
+    ],
+    "produces": [
+      "ct_report_result"
+    ],
+    "priority": 80,
+    "on_demand": true
+  },
+  "runtime": {
+    "host_compatible": [
+      "cuda"
+    ],
+    "requires_gpu": true,
+    "allow_cpu_fallback": false,
+    "estimated_runtime_sec": 30
+  },
+  "direct_chat": {
+    "source_type": "nifti",
+    "source_types": [
+      "nifti"
+    ],
+    "endpoint": "ct-report",
+    "argument_mode": "key_value",
+    "requested_view": "ct_report",
+    "studio": {
+      "renderer": "ct_report"
+    },
+    "result_kind": "ct_report_result"
+  },
+  "help": {
+    "summary": "Run MS-VLM brain CT report generation on the active NIfTI source.",
+    "modes": [
+      {
+        "name": "report",
+        "description": "Generate a free-text brain CT report from the active preprocessed 3D NIfTI volume."
+      }
+    ],
+    "options": [
+      {
+        "name": "cfg_path",
+        "type": "path",
+        "required": false,
+        "description": "Override the MS-VLM YAML config path. Defaults to the bundled model/eval_configs/brainct_stage2.yaml, or MS_VLM_CT_CFG_PATH if set."
+      },
+      {
+        "name": "checkpoint_path",
+        "type": "path",
+        "required": false,
+        "description": "Override model checkpoint path. Must point inside plugins/vllama_ct_report_tool/model/weights/."
+      },
+      {
+        "name": "vit_path",
+        "type": "path",
+        "required": false,
+        "description": "Override DINO/vision checkpoint path. Must point inside plugins/vllama_ct_report_tool/model/weights/."
+      },
+      {
+        "name": "gpu_id",
+        "type": "integer",
+        "required": false,
+        "default": 0,
+        "description": "CUDA device id used to load MS-VLM."
+      },
+      {
+        "name": "max_new_tokens",
+        "type": "integer",
+        "required": false,
+        "default": 200,
+        "description": "Maximum generated tokens for the report."
+      },
+      {
+        "name": "temperature",
+        "type": "float",
+        "required": false,
+        "default": 0.5,
+        "description": "Sampling temperature."
+      }
+    ],
+    "examples": [
+      "@ctreport help",
+      "@ctreport",
+      "@ctreport gpu_id=0 max_new_tokens=220 temperature=0.4",
+      "@ms-vlm"
+    ],
+    "notes": [
+      "The active source must be a NIfTI brain CT volume.",
+      "The model is loaded lazily on the first run and reused for later calls in the same backend process.",
+      "This tool requires CUDA and the MS-VLM Python dependencies."
+    ]
+  }
+}

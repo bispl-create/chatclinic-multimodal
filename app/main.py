@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 import uuid
 import json
+import io
 from pathlib import Path
 from typing import Optional, Type, TypeVar, Union
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from app.models import (
     AnalysisChatRequest,
@@ -418,6 +419,26 @@ def _run_registered_tool_model(
     return response_type(**materialized)
 
 
+def _allowed_file_roots() -> list[Path]:
+    return [
+        RPLOT_OUTPUT_DIR.resolve(),
+        FASTQC_OUTPUT_DIR.resolve(),
+        LDBLOCKSHOW_OUTPUT_DIR.resolve(),
+        (UPLOAD_ROOT / "text").resolve(),
+        (UPLOAD_ROOT / "nifti").resolve(),
+    ]
+
+
+def _resolve_allowed_file_path(path: str, *, allowed_roots: list[Path] | None = None) -> Path:
+    file_path = Path(path).expanduser().resolve()
+    roots = allowed_roots or _allowed_file_roots()
+    if not any(root == file_path or root in file_path.parents for root in roots):
+        raise HTTPException(status_code=403, detail="Access to the requested file is not allowed.")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Output file not found: {file_path}")
+    return file_path
+
+
 def _bootstrap_kwargs_for_source(
     source_type: str,
     *,
@@ -461,7 +482,7 @@ def _resolve_source_path_request(request: SourceFromPathRequest) -> tuple[str, P
 
 def _analyze_registered_source_path(
     request: SourceFromPathRequest,
-) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse | FhirSourceResponse:
+) -> AnalysisResponse | DicomSourceResponse | FhirSourceResponse | ImageSourceResponse | NiftiSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
     source_type, source_path, file_name = _resolve_source_path_request(request)
     return _run_source_bootstrap(
         source_type,
@@ -521,19 +542,76 @@ def run_registered_tool_endpoint(alias: str, request: ToolRunRequest) -> ToolRun
 
 @app.get("/api/v1/files")
 def get_output_file(path: str = Query(..., description="Absolute path to a generated output file")) -> FileResponse:
-    file_path = Path(path).resolve()
-    allowed_roots = [
-        RPLOT_OUTPUT_DIR.resolve(),
-        FASTQC_OUTPUT_DIR.resolve(),
-        LDBLOCKSHOW_OUTPUT_DIR.resolve(),
-        (UPLOAD_ROOT / "text").resolve(),
-        (UPLOAD_ROOT / "nifti").resolve(),
-    ]
-    if not any(root == file_path or root in file_path.parents for root in allowed_roots):
-        raise HTTPException(status_code=403, detail="Access to the requested file is not allowed.")
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"Output file not found: {file_path}")
+    file_path = _resolve_allowed_file_path(path)
     return FileResponse(file_path)
+
+
+@app.get("/api/v1/nifti/slice")
+def get_nifti_slice_preview(
+    path: str = Query(..., description="Absolute path to an uploaded NIfTI volume"),
+    axis: int = Query(2, ge=0, le=2, description="Spatial axis: 0=sagittal, 1=coronal, 2=axial"),
+    index: int = Query(..., ge=0, description="Zero-based slice index along the selected axis"),
+    frame: int = Query(0, ge=0, description="Zero-based frame for 4D volumes"),
+) -> Response:
+    file_path = _resolve_allowed_file_path(path, allowed_roots=[(UPLOAD_ROOT / "nifti").resolve()])
+    try:
+        import nibabel as nib
+        import numpy as np
+        from PIL import Image
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"NIfTI preview dependencies are unavailable: {exc}") from exc
+
+    try:
+        image = nib.load(str(file_path))
+        shape = tuple(int(dim) for dim in image.shape)
+        if len(shape) < 3:
+            raise HTTPException(status_code=400, detail=f"Expected a 3D NIfTI volume, got shape {shape}.")
+        if index >= shape[axis]:
+            raise HTTPException(status_code=400, detail=f"Slice index {index} is outside axis {axis} with {shape[axis]} slices.")
+        if len(shape) >= 4 and frame >= shape[3]:
+            raise HTTPException(status_code=400, detail=f"Frame index {frame} is outside a 4D volume with {shape[3]} frames.")
+
+        slicer: list[object] = [slice(None), slice(None), slice(None)]
+        slicer[axis] = index
+        if len(shape) >= 4:
+            slicer.append(frame)
+            slicer.extend([0] * (len(shape) - 4))
+
+        raw_slice = np.asanyarray(image.dataobj[tuple(slicer)], dtype=np.float32)
+        if raw_slice.ndim != 2:
+            raw_slice = np.squeeze(raw_slice)
+        if raw_slice.ndim != 2:
+            raise HTTPException(status_code=400, detail=f"Could not extract a 2D slice from shape {shape}.")
+
+        raw_slice = np.rot90(raw_slice)
+        finite_values = raw_slice[np.isfinite(raw_slice)]
+        if finite_values.size == 0:
+            normalized = np.zeros(raw_slice.shape, dtype=np.uint8)
+        else:
+            lo, hi = np.percentile(finite_values, [0.5, 99.5])
+            if hi <= lo:
+                lo = float(np.min(finite_values))
+                hi = float(np.max(finite_values))
+            if hi > lo:
+                normalized = np.clip((raw_slice - lo) / (hi - lo), 0, 1) * 255.0
+            else:
+                normalized = np.zeros(raw_slice.shape, dtype=np.float32)
+            normalized = np.nan_to_num(normalized, nan=0.0, posinf=255.0, neginf=0.0).astype(np.uint8)
+
+        preview = Image.fromarray(normalized)
+        preview.thumbnail((768, 768), Image.Resampling.LANCZOS)
+        buffer = io.BytesIO()
+        preview.save(buffer, format="PNG")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"NIfTI slice preview failed: {exc}") from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @app.post("/api/v1/analysis/from-path", response_model=AnalysisResponse)
@@ -576,11 +654,21 @@ def analyze_from_path_async(request: FromPathRequest) -> AnalysisJobResponse:
 
 @app.post(
     "/api/v1/source/from-path",
-    response_model=Union[AnalysisResponse, DicomSourceResponse, RawQcResponse, SpreadsheetSourceResponse, SummaryStatsResponse, TextSourceResponse],
+    response_model=Union[
+        AnalysisResponse,
+        DicomSourceResponse,
+        FhirSourceResponse,
+        ImageSourceResponse,
+        NiftiSourceResponse,
+        RawQcResponse,
+        SpreadsheetSourceResponse,
+        SummaryStatsResponse,
+        TextSourceResponse,
+    ],
 )
 def analyze_registered_source_from_path(
     request: SourceFromPathRequest,
-) -> AnalysisResponse | DicomSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse | FhirSourceResponse:
+) -> AnalysisResponse | DicomSourceResponse | FhirSourceResponse | ImageSourceResponse | NiftiSourceResponse | RawQcResponse | SpreadsheetSourceResponse | SummaryStatsResponse | TextSourceResponse:
     try:
         return _analyze_registered_source_path(request)
     except FileNotFoundError as exc:

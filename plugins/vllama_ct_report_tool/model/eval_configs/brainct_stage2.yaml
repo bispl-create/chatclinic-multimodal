@@ -1,0 +1,48 @@
+model:
+  arch: ms_vlm_stage2_opt_mt
+  model_type: pretrain_vicuna
+  freeze_vit: True
+  freeze_qformer: True
+  freeze_zformer: True
+  freeze_perceiver: False
+  low_resource: False
+  image_size: 224
+  drop_path_rate: 0
+  use_grad_checkpoint: False
+  vit_precision: "fp16"
+  num_query_token: 32
+  llama_model: "facebook/opt-1.3b"
+  vit_model: "vit_base"
+  max_txt_len: 300
+  end_sym: "</s>"
+  device_8bit: 0
+  prompt_path: "prompts/alignment_brain.txt"
+  prompt_template: "You are an medical assistant specialized in brain CT report generation. When the radiologist asks about the brain CT scan, carefully evaluate the scan on the following key elements: the presence of acute intracranial hemorrhage, characterized by hyperdense regions that may indicate subdural, epidural, subarachnoid, or intracerebral bleeding. Assess the ventricles for enlargement or compression, which could suggest hydrocephalus or mass effect. Examine the brain parenchyma for signs of ischemic strokes, identifiable by hypodense areas due to reduced blood flow, or for space-occupying lesions such as tumors, cysts, or abscesses, indicated by irregular density patterns. Observe midline shifts that may indicate severe pressure or herniation. Evaluate the bone windows for skull fractures and sinus abnormalities. </s>RADIOLOGIST: {} </s>ASSISTANT: " #"A chat between a radiologist and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the radiologist's questions. </s>RADIOLOGIST: {} </s>ASSISTANT: "
+  ckpt: "weights/brainct_ckpt_epoch6.pth"
+  vit_path: ["weights/checkpoint0009.pth"]
+  queue_size: 1024
+  lora_r: 64
+  lora_target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+  lora_alpha: 128
+  lora_dropout: 0.05
+  temp: 0.07
+  alpha: 0.04
+  momentum: 0.995
+  heads_to_use: [1, 4]
+  depth: 6
+  big_bird: False
+  ve_type:
+  evaluate: True
+
+datasets:
+  brain-ct-3d:
+    vis_processor:
+      train:
+        name: "blip2_image_eval"
+        image_size: 224
+    text_processor:
+      train:
+        name: "blip_caption"
+
+run:
+  task: image_text_pretrain
