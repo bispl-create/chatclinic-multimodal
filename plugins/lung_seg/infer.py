@@ -9,6 +9,7 @@ import glob
 import os
 import time
 import logging
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -40,19 +41,15 @@ def run_inference(cfg: DictConfig) -> dict:
     # or fall back to the single cfg.paths.cxr_image_path.
     # ------------------------------------------------------------------
     input_path = cfg.paths.cxr_image_path
-    samples_dir = os.path.dirname(input_path)
     input_paths = []
-    if os.path.isdir(samples_dir):
+    if os.path.isfile(input_path):
+        input_paths = [input_path]
+    elif os.path.isdir(input_path):
         for ext in ("*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG"):
-            input_paths.extend(glob.glob(os.path.join(samples_dir, ext)))
+            input_paths.extend(glob.glob(os.path.join(input_path, ext)))
     input_paths = sorted(set(input_paths))
     if not input_paths:
-        if not os.path.isfile(input_path):
-            raise FileNotFoundError(
-                f"No CXR images found. Checked dir '{samples_dir}' and "
-                f"file '{input_path}'."
-            )
-        input_paths = [input_path]
+        raise FileNotFoundError(f"No CXR image(s) found at: {input_path}")
 
     log.info("Found %d CXR image(s) to process.", len(input_paths))
 
@@ -63,9 +60,12 @@ def run_inference(cfg: DictConfig) -> dict:
     # Load model (once)
     # ------------------------------------------------------------------
     log.info("Loading PSPNet model (chestx_det) ...")
-    cxr_cache = os.path.join(cfg.paths.weights_dir, "cxr")
+    weights_dir = Path(cfg.paths.weights_dir)
+    cxr_cache = weights_dir
+    if not (cxr_cache / "pspnet_chestxray_best_model_4.pth").is_file():
+        cxr_cache = weights_dir / "cxr"
     os.makedirs(cxr_cache, exist_ok=True)
-    model = xrv.baseline_models.chestx_det.PSPNet(cache_dir=cxr_cache)
+    model = xrv.baseline_models.chestx_det.PSPNet(cache_dir=str(cxr_cache))
     model = model.to(device)
     model.eval()
 
@@ -83,8 +83,8 @@ def run_inference(cfg: DictConfig) -> dict:
 
         img = skimage_io.imread(path)
         img = xrv.datasets.normalize(img, 255)
-        if img.ndim == 3 and img.shape[2] == 3:
-            img = img.mean(2)
+        if img.ndim == 3:
+            img = img[..., :3].mean(2)
         img = img[None, ...]
         img = transform(img)
         img_tensor = torch.from_numpy(img).unsqueeze(0).to(device)

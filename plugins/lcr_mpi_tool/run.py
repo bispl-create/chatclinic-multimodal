@@ -89,6 +89,8 @@ def main():
             sys.exit(1)
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(base_dir, os.pardir, os.pardir))
+    checkpoint_root = os.path.join(repo_root, 'ckpt_and_file', 'lcr_mpi_tool')
     
     source_pngs = extract_png_paths(input_data)
     use_staging = len(source_pngs) > 0
@@ -120,10 +122,18 @@ def main():
     for model_name in models_to_run:
         model_dir = os.path.join(base_dir, MODELS[model_name])
         script_path = os.path.join(model_dir, 'inference.py')
+        weight_path = os.path.join(checkpoint_root, MODELS[model_name], 'best_model.pth')
+
+        if not os.path.isfile(weight_path):
+            results[model_name] = {
+                "success": False,
+                "message": f"Model weights not found at {weight_path}"
+            }
+            continue
         
         target_input = staging_input if use_staging else os.path.join(model_dir, 'input')
         
-        cmd = ["python3", script_path, "--input", target_input]
+        cmd = [sys.executable, script_path, "--input", target_input, "--pth", weight_path]
         if model_name == 'i2sb':
             target_cond = staging_cond if use_staging else os.path.join(model_dir, 'input_cond')
             cmd.extend(["--cond", target_cond])

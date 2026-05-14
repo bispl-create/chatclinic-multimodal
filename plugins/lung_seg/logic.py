@@ -12,14 +12,17 @@ from omegaconf import OmegaConf
 from .infer import run_inference
 
 _THIS_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _THIS_DIR.parents[1]
+_CHECKPOINT_DIR = _REPO_ROOT / "ckpt_and_file" / "lung_seg_tool"
 _PLUGIN_NAME = "lung_seg"
 _TOOL_VERSION = "0.1.0"
 
 
 def _local_paths() -> Dict[str, str]:
+    weights_dir = _CHECKPOINT_DIR if _CHECKPOINT_DIR.exists() else _THIS_DIR / "weights"
     return {
         "tool_dir": str(_THIS_DIR),
-        "weights_dir": str(_THIS_DIR / "weights"),
+        "weights_dir": str(weights_dir),
         "dataset_dir": str(_THIS_DIR / "dataset"),
         # infer.py uses dirname(cxr_image_path) to glob all CXR samples.
         "cxr_image_path": str(_THIS_DIR / "dataset" / "MCUCXR_0001_0.png"),
