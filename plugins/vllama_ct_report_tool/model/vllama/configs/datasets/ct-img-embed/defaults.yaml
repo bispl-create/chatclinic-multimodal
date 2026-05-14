@@ -1,0 +1,6 @@
+datasets:
+  ct-img-embed:
+    data_type: images
+    build_info:
+      img_path: /scratch/slurm-user3/changsun/data/ct-2d-image-prompt-wrap/
+      txt_path: /scratch/slurm-user3/changsun/data/ct-for-detect-seg/ct_report.csv

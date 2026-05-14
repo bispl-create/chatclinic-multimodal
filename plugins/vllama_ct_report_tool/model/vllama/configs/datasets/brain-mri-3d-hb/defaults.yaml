@@ -1,0 +1,7 @@
+datasets:
+  brain-mri-3d-hb:
+    data_type: images
+    build_info:
+      transform: None
+      img_path: ['/home/kai/changsun/workspace/haundae/brain_mri/three_planes/DIGITAL BIO_MRI (parkinson) 3 planes image', '/home/kai/changsun/workspace/haundae/brain_mri/parkinson_routine'] #/data/changsun/data/MRI/rectal/rectal_MRI_volume #
+      txt_path: /home/kai/changsun/workspace/reports/haundae_brainmri_impression_report_final.csv #formatted_rectal_mri_report_real_prostate_train.json  #formatted_rectal_mri_report.json #/scratch/slurm-user3/changsun/data/rectal_MRI_label/formatted_rectal_mri_report_real_prostate_train.json  #/scratch/slurm-user3/changsun/data/rectal_MRI_label/202301_MRI_impression_final.json #/data/changsun/data/MRI/rectal/formatted_rectal_mri_report_real.json  #

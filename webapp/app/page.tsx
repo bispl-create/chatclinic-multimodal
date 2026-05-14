@@ -626,6 +626,7 @@ type StudioView =
   | "annotations"
   | "image_review"
   | "nifti_review"
+  | "ct_report"
   | "fhir_browser";
 
 type RohStudioSegment = {
@@ -1960,6 +1961,11 @@ export default function Page() {
     return options;
   }
 
+  function isCtReportAlias(alias: string) {
+    const normalized = alias.trim().toLowerCase();
+    return normalized === "ctreport" || normalized === "ct-report" || normalized === "ms-vlm" || normalized === "brainct" || normalized === "brainct-report";
+  }
+
   function toolRunningStatus(alias: string, remainder: string) {
     const normalized = alias.trim().toLowerCase();
     const wantsPlinkScore =
@@ -1989,6 +1995,9 @@ export default function Page() {
     }
     if (normalized === "vcfreview" || normalized === "vcf_review") {
       return "Running VCF review...";
+    }
+    if (isCtReportAlias(normalized)) {
+      return "Running MS-VLM CT report...";
     }
     return "Running tool...";
   }
@@ -2023,6 +2032,9 @@ export default function Page() {
     if (normalized === "vcfreview" || normalized === "vcf_review") {
       return "VCF review ready";
     }
+    if (isCtReportAlias(normalized)) {
+      return "MS-VLM CT report ready";
+    }
     return "Tool ready";
   }
 
@@ -2055,6 +2067,9 @@ export default function Page() {
     }
     if (normalized === "vcfreview" || normalized === "vcf_review") {
       return "VCF review failed";
+    }
+    if (isCtReportAlias(normalized)) {
+      return "MS-VLM CT report failed";
     }
     return "Tool failed";
   }
@@ -2447,6 +2462,64 @@ export default function Page() {
           `- Output directory: ${payload.output_dir}\n` +
           `- Plot artifacts: ${payload.artifacts.length}\n` +
           `- Warnings: ${payload.warnings.length}`,
+      });
+      return;
+    }
+
+    if (isCtReportAlias(alias) && preAnalysisSource.source_type === "nifti") {
+      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/ctreport/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload: {
+            nifti_path: preAnalysisSource.source_path,
+            file_name: preAnalysisSource.file_name,
+            cfg_path: options.cfg_path || undefined,
+            checkpoint_path: options.checkpoint_path || undefined,
+            vit_path: options.vit_path || undefined,
+            gpu_id: options.gpu_id ? Number(options.gpu_id) : undefined,
+            max_new_tokens: options.max_new_tokens ? Number(options.max_new_tokens) : undefined,
+            temperature: options.temperature ? Number(options.temperature) : undefined,
+            top_p: options.top_p ? Number(options.top_p) : undefined,
+            slice_axis: options.slice_axis || undefined,
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = (await response.json()) as ToolRunResponse;
+      const ctReport = payload.result?.ct_report ?? null;
+      setNiftiAnalysis((current: any) => {
+        if (!current) {
+          return current;
+        }
+        const studioCards = Array.isArray(current.studio_cards) ? [...current.studio_cards] : [];
+        if (!studioCards.some((card: any) => String(card?.id ?? "") === "ct_report")) {
+          studioCards.push({
+            id: "ct_report",
+            title: "MS-VLM CT Report",
+            subtitle: "Brain CT report generated from the active NIfTI volume",
+          });
+        }
+        return {
+          ...current,
+          artifacts: {
+            ...(current.artifacts ?? {}),
+            ms_vlm_ct_report: ctReport,
+          },
+          studio_cards: studioCards,
+          used_tools: [...new Set([...(current.used_tools ?? []), "ms_vlm_ct_report_tool"])],
+        };
+      });
+      activateStudioFromPayload({ result_kind: "ct_report_result", requested_view: "ct_report", studio: { renderer: "ct_report" } }, "ct_report", "nifti");
+      setStatus(toolReadyStatus(alias, remainder));
+      addMessage({
+        role: "assistant",
+        content:
+          `MS-VLM generated a brain CT report for \`${preAnalysisSource.file_name}\`.\n\n` +
+          `${ctReport?.report || "No report text was returned."}\n\n` +
+          `- Inference time: ${ctReport?.inference_time_seconds ?? "n/a"} seconds`,
       });
       return;
     }

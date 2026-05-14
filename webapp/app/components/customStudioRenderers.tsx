@@ -7,6 +7,7 @@ import DicomInteractiveViewer from "./DicomInteractiveViewer";
 import IgvBrowser from "./IgvBrowser";
 
 const NiivueViewer = dynamic(() => import("./NiivueViewer"), { ssr: false });
+const NiftiSliceViewer = dynamic(() => import("./NiftiSliceViewer"), { ssr: false });
 import { type StudioRendererBuilderArgs, type StudioRendererRegistry } from "./studioRendererTypes";
 
 function MetricBarList({
@@ -457,6 +458,67 @@ function NiftiReviewCard({
   );
 }
 
+function MsVlmCtReportCard({
+  analysis,
+  apiBase,
+  components,
+}: {
+  analysis: any;
+  apiBase: string;
+  components: StudioRendererBuilderArgs["components"];
+}) {
+  const { StudioMetricGrid, WarningListCard } = components;
+  const result = analysis?.artifacts?.ms_vlm_ct_report ?? analysis?.artifacts?.ct_report_result ?? null;
+  const generation = result?.generation ?? {};
+  const checkpointName = result?.checkpoint_path ? String(result.checkpoint_path).split("/").pop() : "n/a";
+  const vitName = Array.isArray(result?.vit_path) && result.vit_path.length ? String(result.vit_path[0]).split("/").pop() : "n/a";
+  const niftiPath = result?.source_nifti_path ?? analysis?.source_nifti_path ?? null;
+
+  return (
+    <section className="notebookPanel studioCanvasPanel">
+      <div className="notebookHeader">
+        <h2>MS-VLM CT Report</h2>
+        <span className="pill">{result?.file_name ?? analysis?.file_name ?? "nifti"}</span>
+      </div>
+      <div className="studioCanvasBody">
+        <StudioMetricGrid
+          items={[
+            { label: "Inference", value: result?.inference_time_seconds != null ? `${result.inference_time_seconds}s` : "n/a", tone: "good" },
+            { label: "Max tokens", value: generation?.max_new_tokens != null ? String(generation.max_new_tokens) : "n/a", tone: "neutral" },
+            { label: "Temperature", value: generation?.temperature != null ? String(generation.temperature) : "n/a", tone: "neutral" },
+            { label: "Model slices", value: Array.isArray(generation?.model_shape) ? String(generation.model_shape[1] ?? "n/a") : "n/a", tone: "neutral" },
+            { label: "Checkpoint", value: checkpointName, tone: "neutral" },
+            { label: "Vision", value: vitName, tone: "neutral" },
+          ]}
+        />
+        <article className="miniCard">
+          <h3>Input Volume</h3>
+          <NiftiSliceViewer
+            apiBase={apiBase}
+            niftiPath={niftiPath}
+            shape={analysis?.shape}
+            fileName={result?.file_name ?? analysis?.file_name}
+          />
+        </article>
+        <article className="miniCard">
+          <h3>Generated report</h3>
+          {result?.report ? <pre className="codeBlock">{String(result.report)}</pre> : <p className="emptyState">No MS-VLM report has been generated for this volume yet.</p>}
+        </article>
+        {result?.prompt ? (
+          <article className="miniCard">
+            <h3>Prompt</h3>
+            <pre className="codeBlock">{String(result.prompt)}</pre>
+          </article>
+        ) : null}
+        <WarningListCard
+          warnings={Array.isArray(result?.warnings) ? result.warnings : []}
+          emptyLabel="No MS-VLM warnings."
+        />
+      </div>
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // FHIR helpers
 // ---------------------------------------------------------------------------
@@ -832,6 +894,10 @@ export function buildCustomStudioRendererRegistry({
     nifti_review: () =>
       niftiAnalysis ? (
         <NiftiReviewCard analysis={niftiAnalysis} apiBase={apiBase} components={components} />
+      ) : null,
+    ct_report: () =>
+      niftiAnalysis ? (
+        <MsVlmCtReportCard analysis={niftiAnalysis} apiBase={apiBase} components={components} />
       ) : null,
     fhir_browser: () =>
       fhirAnalysis ? (

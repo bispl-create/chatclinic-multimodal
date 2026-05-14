@@ -17,6 +17,7 @@ const STUDIO_RENDERER_METADATA: Record<string, { requestedViews?: string[]; resu
   dicom_review: { requestedViews: ["dicom_review"], resultKinds: ["dicom_analysis"] },
   image_review: { requestedViews: ["image_review"], resultKinds: ["image_analysis"] },
   nifti_review: { requestedViews: ["nifti_review"], resultKinds: ["nifti_analysis"] },
+  ct_report: { requestedViews: ["ct_report"], resultKinds: ["ct_report_result"] },
   cohort_browser: { requestedViews: ["cohort_browser"] },
   sumstats: { requestedViews: ["sumstats"] },
   samtools: { requestedViews: ["samtools"], resultKinds: ["samtools_result"] },

@@ -1,0 +1,7 @@
+datasets:
+  brain-mri-3d-vqa:
+    data_type: images
+    build_info:
+      transform: None
+      img_path: /scratch/slurm-user3/changsun/data/TCIA_Download/manifest-25ZdsnMy5264093150469993200/TCGA-LGG #/data/changsun/data/MRI/brain/TCIA_Download/manifest-25ZdsnMy5264093150469993200/TCGA-LGG #
+      txt_path: /scratch/slurm-user3/changsun/data/brain_MRI_label/formatted_brain_mri_real_vqa.json #/data/changsun/data/MRI/brain/brain_MRI_label/formatted_rectal_mri_real_vqa.json #

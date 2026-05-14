@@ -1,0 +1,4 @@
+<Img><ImageHere></Img> This is a volumetric rectal tumor MRI scan showing abnormalities. Diagnose this patient with this MRI scan.
+<Img><ImageHere></Img> Diagnoe this volumetric rectal MRI image with potential tumors.
+<Img><ImageHere></Img> Provide a detailed description of this volumetric rectal tumor MRI.
+<Img><ImageHere></Img> Could you describe what this volumetric rectal MRI show?

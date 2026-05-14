@@ -1,0 +1,12 @@
+datasets:
+  ct:
+    data_type: images
+    build_info:
+      is_train: True
+      is_val: False
+      is_large: False
+      image_res: 224
+      image_small: 128
+      csv: /scratch/slurm-user3/changsun/csvs/folds_patients.csv
+      z_length: 12
+      storage: /scratch/slurm-user3/changsun/data/rsna-intracranial-hemorrhage-detection/selected_3d/train/

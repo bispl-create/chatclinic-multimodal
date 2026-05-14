@@ -1,0 +1,41 @@
+model:
+  arch: vllamaita_zformer
+  # vit encoder
+  image_size: 224
+  drop_path_rate: 0
+  use_grad_checkpoint: False
+  vit_precision: "fp16"
+  freeze_vit: True
+  freeze_qformer: True
+  low_resource: True
+  # Q-Former
+  num_query_token: 32
+
+  # Vicuna
+  llama_model: 'facebook/opt-1.3b' #'axiong/PMC_LLaMA_13B'  #"lmsys/vicuna-7b-v1.5" #  "tiiuae/falcon-rw-1b" # "tiiuae/falcon-rw-1b" #   # "lmsys/vicuna-7b-v1.5" #"falcon" # # "lmsys/vicuna-7b-v1.5" #"tiiuae/falcon-rw-1b" # #"GeneZC/MiniChat-1.5-3B" #"lmsys/vicuna-7b-v1.5" #"ericzzz/falcon-rw-1b-instruct-openorca" #
+
+  #'/scratch/slurm-user3/changsun/vicuna-7b-v1.3' #
+  # '/data/changsun/models/PMC-LLaMA'  #'
+  #'starmpcc/Asclepius-7B'
+  #'chaoyi-wu/MedLLaMA_13B'
+
+  #'/scratch/slurm-user3/.cache/huggingface/hub/models--starmpcc--Asclepius-7B/snapshots/9207fa5ec28658219040b890a522516273ec9a7b/'
+  # "/scratch/slurm-user3/.cache/huggingface/hub/models--starmpcc--Asclepius-13B/snapshots/a6f38d1336521e66a2a4154f3113c7463f77bd87/"
+  # "/scratch/slurm-user3/.cache/huggingface/hub/models--starmpcc--Asclepius-7B/snapshots/9207fa5ec28658219040b890a522516273ec9a7b/"  #"/home/changsun/vicuna-13b-working/" #"/scratch/slurm-user3/changsun/vicuna-13b-working/" #"/path/to/vicuna/weights/""/home/changsun/Asclepius-7B/" #
+
+  # generation configs
+  prompt: ""
+
+preprocess:
+    vis_processor:
+        train:
+          name: "blip2_image_train"
+          image_size: 224
+        eval:
+          name: "blip2_image_eval"
+          image_size: 224
+    text_processor:
+        train:
+          name: "blip_caption"
+        eval:
+          name: "blip_caption"

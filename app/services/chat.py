@@ -53,6 +53,7 @@ from app.models import (
 from app.services.tool_runner import (
     load_tool_manifests,
     manifest_for_alias,
+    run_tool,
     tool_aliases,
     tool_chat_metadata,
     tool_direct_chat_metadata,
@@ -224,6 +225,10 @@ def _describe_source_type(source_type: str) -> str:
         return "spreadsheet session"
     if normalized == "dicom":
         return "DICOM imaging session"
+    if normalized == "image":
+        return "image session"
+    if normalized == "nifti":
+        return "NIfTI imaging session"
     return "current session"
 
 
@@ -241,6 +246,10 @@ def _tool_input_hint(source_type: str) -> str:
         return "active spreadsheet source"
     if normalized == "dicom":
         return "active DICOM source"
+    if normalized == "image":
+        return "active image source"
+    if normalized == "nifti":
+        return "active NIfTI source"
     return "active source"
 
 
@@ -429,6 +438,30 @@ def _text_tool_response(
     )
 
 
+def _nifti_tool_response(
+    answer: str,
+    *,
+    result_kind: str | None = None,
+    citations: list[str] | None = None,
+    used_fallback: bool = False,
+    used_tools: list[str] | None = None,
+    requested_view: str | None = None,
+    studio: dict[str, Any] | None = None,
+    analysis: object = None,
+) -> NiftiChatResponse:
+    return NiftiChatResponse(
+        source_type="nifti",
+        answer=answer,
+        citations=citations or [],
+        used_fallback=used_fallback,
+        used_tools=used_tools or [],
+        result_kind=result_kind,
+        requested_view=requested_view,
+        studio=studio,
+        analysis=analysis,
+    )
+
+
 
 def _is_korean(text: str) -> bool:
     return bool(re.search(r"[\uac00-\ud7a3]", text))
@@ -585,6 +618,26 @@ def answer_source_chat(payload: SourceChatRequest) -> SourceChatResponse:
             )
         )
         return _serialize_source_chat_response("image", response)
+    if source_type == "nifti":
+        response = answer_nifti_chat(
+            NiftiChatRequest(
+                question=payload.question,
+                analysis=NiftiSourceResponse(**payload.analysis_payload),
+                history=payload.history,
+                studio_context=studio_context,
+            )
+        )
+        return _serialize_source_chat_response("nifti", response)
+    if source_type == "fhir":
+        response = answer_fhir_chat(
+            FhirChatRequest(
+                question=payload.question,
+                analysis=FhirSourceResponse(**payload.analysis_payload),
+                history=payload.history,
+                studio_context=studio_context,
+            )
+        )
+        return _serialize_source_chat_response("fhir", response)
     raise NotImplementedError(f"Unsupported source chat type: {source_type}")
 
 
@@ -1163,7 +1216,7 @@ def _extract_liftover_target_build(question: str, build_guess: str | None) -> tu
 
 def _extract_key_value_options(text: str) -> dict[str, str]:
     options: dict[str, str] = {}
-    for key, value in re.findall(r"([A-Za-z_][A-Za-z0-9_-]*)=([A-Za-z0-9._:-]+)", text):
+    for key, value in re.findall(r"([A-Za-z_][A-Za-z0-9_-]*)=([A-Za-z0-9._:/-]+)", text):
         options[key.lower()] = value
     return options
 
@@ -1667,6 +1720,85 @@ def _execute_analysis_direct_vcf_review(
     )
 
 
+def _coerce_tool_number(options: dict[str, str], key: str, cast: Any) -> Any | None:
+    value = options.get(key)
+    if value is None or str(value).strip() == "":
+        return None
+    return cast(value)
+
+
+def _execute_nifti_direct_ms_vlm_ct_report(
+    payload: NiftiChatRequest,
+    tool_request: dict[str, object],
+    direct_chat: dict[str, Any],
+    options: dict[str, str],
+) -> NiftiChatResponse:
+    source_nifti_path = payload.analysis.source_nifti_path
+    if not source_nifti_path:
+        return _nifti_tool_response(
+            "The current NIfTI context does not include a source file path, so MS-VLM CT report generation cannot run.",
+            used_fallback=True,
+            used_tools=["ms_vlm_ct_report_tool"],
+        )
+
+    tool_payload: dict[str, object] = {
+        "nifti_path": source_nifti_path,
+        "file_name": payload.analysis.file_name,
+    }
+    for key in ("cfg_path", "checkpoint_path", "vit_path", "slice_axis"):
+        if options.get(key):
+            tool_payload[key] = options[key]
+    for key in ("gpu_id", "max_new_tokens", "num_beams", "min_length", "prompt_index"):
+        value = _coerce_tool_number(options, key, int)
+        if value is not None:
+            tool_payload[key] = value
+    for key in ("top_p", "repetition_penalty", "length_penalty", "temperature"):
+        value = _coerce_tool_number(options, key, float)
+        if value is not None:
+            tool_payload[key] = value
+    if "do_sample" in options:
+        tool_payload["do_sample"] = options["do_sample"].strip().lower() in {"1", "true", "yes", "on"}
+
+    result = run_tool("ms_vlm_ct_report_tool", tool_payload)
+    ct_report = result.get("ct_report") if isinstance(result, dict) else None
+    if not isinstance(ct_report, dict):
+        raise RuntimeError("MS-VLM CT report tool returned no `ct_report` object.")
+
+    artifacts = dict(payload.analysis.artifacts or {})
+    artifacts["ms_vlm_ct_report"] = ct_report
+    studio_cards = list(payload.analysis.studio_cards or [])
+    if not any(str(card.get("id") or "") == "ct_report" for card in studio_cards if isinstance(card, dict)):
+        studio_cards.append(
+            {
+                "id": "ct_report",
+                "title": "MS-VLM CT Report",
+                "subtitle": "Brain CT report generated from the active NIfTI volume",
+            }
+        )
+    used_tools = list(dict.fromkeys([*(payload.analysis.used_tools or []), "ms_vlm_ct_report_tool"]))
+    report_text = str(ct_report.get("report") or "").strip()
+    updated_analysis = payload.analysis.model_copy(
+        update={
+            "artifacts": artifacts,
+            "studio_cards": studio_cards,
+            "used_tools": used_tools,
+            "draft_answer": result.get("draft_answer", payload.analysis.draft_answer),
+        }
+    )
+    return _nifti_tool_response(
+        (
+            f"MS-VLM generated a brain CT report for `{payload.analysis.file_name}`.\n\n"
+            f"{report_text or 'No report text was returned.'}\n\n"
+            f"Inference time: {ct_report.get('inference_time_seconds', 'n/a')} seconds."
+        ),
+        result_kind=str(direct_chat.get("result_kind") or "ct_report_result"),
+        used_tools=["ms_vlm_ct_report_tool"],
+        requested_view=str(direct_chat.get("requested_view") or "ct_report"),
+        studio=direct_chat.get("studio") if isinstance(direct_chat.get("studio"), dict) else {"renderer": "ct_report"},
+        analysis=updated_analysis,
+    )
+
+
 DIRECT_TOOL_ENDPOINT_EXECUTORS: dict[str, dict[str, Any]] = {
     "vcf": {
         "liftover": _execute_analysis_direct_liftover,
@@ -1685,6 +1817,9 @@ DIRECT_TOOL_ENDPOINT_EXECUTORS: dict[str, dict[str, Any]] = {
     },
     "text": {},
     "spreadsheet": {},
+    "nifti": {
+        "ct-report": _execute_nifti_direct_ms_vlm_ct_report,
+    },
 }
 
 

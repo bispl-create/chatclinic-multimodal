@@ -1,0 +1,7 @@
+datasets:
+  brain-ct-3d-multi-vqa:
+    data_type: images
+    build_info:
+      transform: None
+      img_path: /home/kai/changsun/datasets_subset/ #/mnt/hdd/CT4REP/NIFTI_v1/ #/data/changsun/data/MRI/rectal/rectal_MRI_volume #
+      txt_path: /home/kai/changsun/vllama/brainct_freeresponse_description_mutiplechoice_dataset.json #formatted_rectal_mri_report_real_prostate_train.json  #formatted_rectal_mri_report.json #/scratch/slurm-user3/changsun/data/rectal_MRI_label/formatted_rectal_mri_report_real_prostate_train.json  #/scratch/slurm-user3/changsun/data/rectal_MRI_label/202301_MRI_impression_final.json #/data/changsun/data/MRI/rectal/formatted_rectal_mri_report_real.json  #

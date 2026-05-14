@@ -1,0 +1,5 @@
+<Img><ImageHere></Img> This is a brain CT scan showing abnormalities. Describe all the abnormalities that are depicted in the brain CT scan.
+<Img><ImageHere></Img> Diagnose this brain CT scan with any abnormalities.
+<Img><ImageHere></Img> Provide a detailed description of this brain CT scan.
+<Img><ImageHere></Img> Could you describe what this brain CT scan show?
+<Img><ImageHere></Img> Describe any abnormalities shown in this brain CT scan.

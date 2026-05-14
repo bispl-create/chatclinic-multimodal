@@ -1,0 +1,7 @@
+datasets:
+  rectal-mri-3d-vqa:
+    data_type: images
+    build_info:
+      transform: None
+      img_path: /scratch/slurm-user3/changsun/data/rectal_MRI_volume #/data/changsun/data/MRI/rectal/rectal_MRI_volume #
+      txt_path: /scratch/slurm-user3/changsun/data/rectal_MRI_label/formatted_rectal_mri_real_vqa_full.json #/data/changsun/data/MRI/rectal/formatted_rectal_mri_real_vqa.json #
