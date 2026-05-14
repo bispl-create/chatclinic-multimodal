@@ -174,6 +174,18 @@ Set your API key in `.env`:
 OPENAI_API_KEY=sk-...
 ```
 
+### Model checkpoints
+
+Large model checkpoint files are not committed to git. Put checkpoint files under `ckpt_and_file/<tool_name>/` at the repository root, using the file names expected by each tool.
+
+For example:
+
+```text
+ckpt_and_file/
+  detection_ayq_tool/
+    dino_ayq.pth
+```
+
 ### Install frontend
 
 ```bash

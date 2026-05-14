@@ -13,8 +13,8 @@ from plugins.cxr_zeroshot_tool.model.zero_shot_inference import load_clip
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "model" / "weights" / "checkpoint_ema_epoch_4.pt"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MODEL_PATH = REPO_ROOT / "ckpt_and_file" / "cxr_zeroshot_tool" / "checkpoint_ema_epoch_4.pt"
 
 UNSEEN_PROMPTS = {
     "Scoliosis": {

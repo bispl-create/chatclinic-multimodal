@@ -39,8 +39,15 @@ LABEL_NAMES = [
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODELS = load_models(DEVICE)
-print("[CXR] Models loaded.")
+MODELS = None
+
+
+def _get_models():
+    global MODELS
+    if MODELS is None:
+        MODELS = load_models(DEVICE)
+        print("[CXR] Models loaded.")
+    return MODELS
 
 
 def run(payload: dict) -> dict:
@@ -56,8 +63,9 @@ def run(payload: dict) -> dict:
         }
 
     try:
+        models = _get_models()
         image = preprocess(image_path)
-        pred = infer(MODELS, image, DEVICE)[0]
+        pred = infer(models, image, DEVICE)[0]
 
         results = [
             {

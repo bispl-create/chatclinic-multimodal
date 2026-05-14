@@ -20,11 +20,12 @@ from plugins.cxr_classification_tool.model.convnext_v2 import (
 def load_models(device):
     num_classes = 30
 
-    BASE_DIR = Path(__file__).parent
+    repo_root = Path(__file__).resolve().parents[3]
+    weights_dir = repo_root / "ckpt_and_file" / "cxr_classification_tool"
 
-    pcam_path = BASE_DIR / "weights/PCAM_AP.pth"
-    cait_path = BASE_DIR / "weights/CAIT_AP.pth"
-    swin_path = BASE_DIR / "weights/SWIN_AP.pth"
+    pcam_path = weights_dir / "PCAM_AP.pth"
+    cait_path = weights_dir / "CAIT_AP.pth"
+    swin_path = weights_dir / "SWIN_AP.pth"
 
     model_pcam = ConvNeXtV2_newPCAM(pretrained=False)
     ckpt = torch.load(pcam_path, map_location=device)

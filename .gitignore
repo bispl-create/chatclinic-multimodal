@@ -30,6 +30,7 @@ uploads/
 references/
 third_party/
 data/
+ckpt_and_file/
 
 # Model weights
 plugins/cxr_classification_tool/model/weights/*.pth
