@@ -17,14 +17,28 @@ Upload a source file to get started. Supported formats: DICOM images, PNG/JPG/TI
 
 **DICOM**
 - Auto: DICOM Review (metadata, series summary, preview)
+- `@ct_denoise [backend=corediff|fastddpm]` — Low-dose CT denoising (CoreDiff / Fast-DDPM)
+- `@ct_artifact` — CT streak / metal / motion artifact reduction (CoreDiff)
+- `@mri_denoise [size=small|medium|large]` — MRI denoising (Microsoft SNRAware)
+- `@mri_sr` — MRI super-resolution (Fast-DDPM PMUB)
+- `@med_translate` — Medical image translation / synthesis (Fast-DDPM BRATS)
+- `@xray_denoise` — Chest X-ray denoising (TorchXRayVision ResNetAE autoencoder pretrained on PadChest/NIH/CheXpert/MIMIC; SharpXR preferred when user supplies weights)
 
 **PNG / JPG / TIFF Image**
 - Auto: Image Review (metadata, EXIF, thumbnail)
 - `@cxr` — Run CXR-LT multi-label classification for 30 known chest X-ray findings
 - `@cxr-zeroshot` — Run CXR-LT zero-shot/OOD classification for 6 rare unseen findings
+- `@seg_lung` — Segment lung fields on a chest X-ray image
+- `@lcr_mpi [gan|i2sb|rddm]` — Restore low-quality medical images with LCR/MPI restoration models
+- `@ct_denoise`, `@ct_artifact`, `@mri_denoise`, `@mri_sr`, `@med_translate`, `@xray_denoise` — Medical image restoration tools (see DICOM)
 
 **NIfTI Volume (.nii, .nii.gz)**
 - Auto: NIfTI Review (shape, voxel dimensions, orientation, 3D viewer via Niivue)
+- `@seg_brain` — Brain tumor segmentation for BraTS-style MRI volumes
+- `@seg_spleen` — Spleen segmentation for abdominal CT volumes
+- `@seg_pancreas` — Pancreas and tumor segmentation for abdominal CT volumes
+- `@seg_organ` — Multi-organ segmentation for abdominal CT volumes
+- `@ct_denoise`, `@ct_artifact`, `@mri_denoise`, `@mri_sr`, `@med_translate` — Medical image restoration tools (operate on central slice)
 
 **FHIR Bundle**
 - Auto: FHIR Browser (patient, medications, labs, care team)

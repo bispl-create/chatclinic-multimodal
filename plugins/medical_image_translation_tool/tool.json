@@ -1,0 +1,22 @@
+{
+  "name": "medical_image_translation_tool",
+  "entrypoint": "plugins.medical_image_translation_tool.logic:execute",
+  "description": "Medical image translation / synthesis-restoration via Fast-DDPM BRATS checkpoint (cross-contrast MRI). Useful as a restoration prior when the paired modality is missing.",
+  "task": "medical_image_translation",
+  "modality": "medical-image",
+  "source": "plugin",
+  "aliases": ["med_translate", "mtranslate", "medxlate"],
+  "routing": { "trigger_keywords": ["med_translate", "mtranslate", "medxlate"] },
+  "direct_chat": {
+    "response_kind": "image_chat",
+    "result_kind": "image_analysis",
+    "requested_view": "image_review",
+    "studio": { "renderer": "image_review" },
+    "source_types": ["nifti", "dicom", "image"]
+  },
+  "source_types": ["nifti", "dicom", "image"],
+  "help": {
+    "summary": "Translate / synthesize a medical image via Fast-DDPM (BRATS-trained cross-contrast MRI generator).",
+    "examples": ["@med_translate help", "@med_translate"]
+  }
+}

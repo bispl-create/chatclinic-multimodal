@@ -2745,8 +2745,11 @@ export default function Page() {
 
       const toolResult = await response.json();
       const resultData = toolResult.result ?? {};
+      const returnedAnalysis =
+        resultData.analysis && typeof resultData.analysis === "object" ? resultData.analysis : null;
       const summary =
         resultData.dementia_prediction?.summary ??
+        returnedAnalysis?.draft_answer ??
         resultData.summary ??
         JSON.stringify(resultData).slice(0, 500);
       const visualArtifacts =
@@ -2760,7 +2763,28 @@ export default function Page() {
         activateStudioFromPayload(toolResult.studio, undefined, preAnalysisSource.source_type);
       }
 
-      if (visualArtifacts.length) {
+      if (returnedAnalysis && (preAnalysisSource.source_type === "image" || preAnalysisSource.source_type === "nifti")) {
+        const enrichedAnalysis = {
+          ...returnedAnalysis,
+          artifacts: {
+            ...(returnedAnalysis.artifacts ?? {}),
+            tool_results: {
+              ...((returnedAnalysis.artifacts ?? {}).tool_results ?? {}),
+              [alias]: resultData,
+            },
+            ...(visualArtifacts.length ? { tool_visualizations: visualArtifacts } : {}),
+          },
+          used_tools: Array.from(
+            new Set([...(returnedAnalysis.used_tools ?? []), String(toolResult.tool_name ?? alias)]),
+          ),
+        };
+        setImageAnalysis(enrichedAnalysis);
+        activateStudioFromPayload(
+          { requested_view: "image_review", studio: { renderer: "image_review" } },
+          "image_review",
+          "image",
+        );
+      } else if (visualArtifacts.length) {
         const mergeToolVisuals = (current: any) => {
           if (!current) return current;
           const existingVisuals = Array.isArray(current.artifacts?.tool_visualizations)

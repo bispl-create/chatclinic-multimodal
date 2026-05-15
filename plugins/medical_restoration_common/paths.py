@@ -1,0 +1,48 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# Repo root is three levels up: plugins/medical_restoration_common/paths.py
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PLUGIN_ROOT = Path(__file__).resolve().parent
+CHECKPOINT_ROOT = Path(os.environ.get("CHATCLINIC_CKPT_DIR", REPO_ROOT / "ckpt_and_file"))
+
+EXTERNAL_BACKENDS = Path(os.environ.get("CHATCLINIC_BACKENDS_DIR", PLUGIN_ROOT / "external_backends"))
+EXTERNAL_WEIGHTS = Path(
+    os.environ.get("CHATCLINIC_WEIGHTS_DIR", CHECKPOINT_ROOT / "medical_restoration_common")
+)
+
+SNRAWARE_BACKEND = EXTERNAL_BACKENDS / "SNRAware"
+COREDIFF_BACKEND = EXTERNAL_BACKENDS / "CoreDiff"
+FASTDDPM_BACKEND = EXTERNAL_BACKENDS / "Fast-DDPM"
+
+SNRAWARE_WEIGHTS = EXTERNAL_WEIGHTS / "SNRAware"
+FASTDDPM_WEIGHTS = EXTERNAL_WEIGHTS / "FastDDPM"
+COREDIFF_WEIGHTS = EXTERNAL_WEIGHTS / "CoreDiff"
+
+RESTORATION_CACHE = Path(os.environ.get("CHATCLINIC_RESTORATION_CACHE", REPO_ROOT / ".cache" / "restoration"))
+RESTORATION_CACHE.mkdir(parents=True, exist_ok=True)
+
+
+def backend_status() -> dict[str, dict[str, object]]:
+    return {
+        "snraware": {
+            "backend_dir": str(SNRAWARE_BACKEND),
+            "weights_dir": str(SNRAWARE_WEIGHTS),
+            "backend_exists": SNRAWARE_BACKEND.exists(),
+            "weights_exist": SNRAWARE_WEIGHTS.exists() and any(SNRAWARE_WEIGHTS.iterdir()) if SNRAWARE_WEIGHTS.exists() else False,
+        },
+        "corediff": {
+            "backend_dir": str(COREDIFF_BACKEND),
+            "weights_dir": str(COREDIFF_WEIGHTS),
+            "backend_exists": COREDIFF_BACKEND.exists(),
+            "weights_exist": COREDIFF_WEIGHTS.exists(),
+        },
+        "fastddpm": {
+            "backend_dir": str(FASTDDPM_BACKEND),
+            "weights_dir": str(FASTDDPM_WEIGHTS),
+            "backend_exists": FASTDDPM_BACKEND.exists(),
+            "weights_exist": FASTDDPM_WEIGHTS.exists(),
+        },
+    }
