@@ -2143,6 +2143,47 @@ export default function Page() {
     return "Tool failed";
   }
 
+  function isVisualArtifactPath(value: unknown): value is string {
+    return typeof value === "string" && /\.(png|jpe?g|webp|gif)$/i.test(value.trim());
+  }
+
+  function collectImageToolVisualArtifacts(alias: string, resultData: any) {
+    const artifacts = resultData?.artifacts ?? {};
+    const candidates: Array<{ path: string; title: string; kind: string }> = [];
+    const addPath = (value: unknown, title: string, kind: string) => {
+      if (isVisualArtifactPath(value)) {
+        candidates.push({ path: value, title, kind });
+      }
+    };
+    const displayAlias = `@${alias}`;
+    addPath(artifacts.summary_grid_path, `${displayAlias} restoration result`, "restoration_summary");
+    addPath(artifacts.mask_path, `${displayAlias} segmentation mask`, "segmentation_mask");
+    if (Array.isArray(artifacts.summary_grid_paths)) {
+      artifacts.summary_grid_paths.forEach((path: unknown, index: number) =>
+        addPath(path, `${displayAlias} restoration result ${index + 1}`, "restoration_summary"),
+      );
+    }
+    if (Array.isArray(artifacts.mask_paths)) {
+      artifacts.mask_paths.forEach((path: unknown, index: number) =>
+        addPath(path, `${displayAlias} segmentation mask ${index + 1}`, "segmentation_mask"),
+      );
+    }
+    Object.values(artifacts.inference_results ?? {}).forEach((item: any) => {
+      addPath(item?.summary_grid_path, `${displayAlias} restoration result`, "restoration_summary");
+    });
+
+    const seen = new Set<string>();
+    return candidates
+      .filter((item) => {
+        if (seen.has(item.path)) {
+          return false;
+        }
+        seen.add(item.path);
+        return true;
+      })
+      .map((item) => ({ ...item, tool_alias: alias, file_name: item.path.split("/").pop() ?? item.path }));
+  }
+
   async function runPreAnalysisTool(alias: string, remainder: string) {
     const preAnalysisSource =
       sessionMode === "prs"
@@ -2701,11 +2742,48 @@ export default function Page() {
         resultData.dementia_prediction?.summary ??
         resultData.summary ??
         JSON.stringify(resultData).slice(0, 500);
+      const visualArtifacts =
+        preAnalysisSource.source_type === "image"
+          ? collectImageToolVisualArtifacts(alias, resultData)
+          : [];
 
       setStatus(toolReadyStatus(alias, remainder));
 
       if (toolResult.studio) {
         activateStudioFromPayload(toolResult.studio, undefined, preAnalysisSource.source_type);
+      }
+
+      if (visualArtifacts.length) {
+        setImageAnalysis((current) => {
+          if (!current) {
+            return current;
+          }
+          const existingVisuals = Array.isArray(current.artifacts?.tool_visualizations)
+            ? current.artifacts.tool_visualizations
+            : [];
+          const existingPaths = new Set(existingVisuals.map((item: any) => String(item?.path ?? "")));
+          const mergedVisuals = [
+            ...existingVisuals,
+            ...visualArtifacts.filter((item) => !existingPaths.has(item.path)),
+          ];
+          return {
+            ...current,
+            artifacts: {
+              ...(current.artifacts ?? {}),
+              tool_visualizations: mergedVisuals,
+              tool_results: {
+                ...((current.artifacts ?? {}).tool_results ?? {}),
+                [alias]: resultData,
+              },
+            },
+            used_tools: Array.from(new Set([...(current.used_tools ?? []), String(toolResult.tool_name ?? alias)])),
+          };
+        });
+        activateStudioFromPayload(
+          { requested_view: "image_review", studio: { renderer: "image_review" } },
+          "image_review",
+          "image",
+        );
       }
 
       addMessage({

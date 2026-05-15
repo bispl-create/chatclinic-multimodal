@@ -157,6 +157,10 @@ app.add_middleware(
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PLUGINS_DIR = ROOT_DIR / "plugins"
 SKILL_MD_PATH = ROOT_DIR / "skills" / "chatgenome-orchestrator" / "SKILL.md"
+PLUGIN_VISUAL_OUTPUT_DIRS = [
+    PLUGINS_DIR / "lcr_mpi_tool" / "outputs",
+    PLUGINS_DIR / "lung_seg" / "results",
+]
 
 
 def _read_skill_section(heading: str, fallback: str = "") -> str:
@@ -561,6 +565,7 @@ def get_output_file(path: str = Query(..., description="Absolute path to a gener
         LDBLOCKSHOW_OUTPUT_DIR.resolve(),
         (UPLOAD_ROOT / "text").resolve(),
         (UPLOAD_ROOT / "nifti").resolve(),
+        *(path.resolve() for path in PLUGIN_VISUAL_OUTPUT_DIRS),
     ]
     if not any(root == file_path or root in file_path.parents for root in allowed_roots):
         raise HTTPException(status_code=403, detail="Access to the requested file is not allowed.")

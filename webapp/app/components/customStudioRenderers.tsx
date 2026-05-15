@@ -319,13 +319,18 @@ function DicomReviewCard({
 
 function ImageReviewCard({
   analysis,
+  apiBase,
   components,
 }: {
   analysis: any;
+  apiBase: string;
   components: StudioRendererBuilderArgs["components"];
 }) {
   const { StudioMetricGrid, WarningListCard } = components;
   const exifEntries = Object.entries(analysis?.exif_data ?? {});
+  const visualArtifacts = Array.isArray(analysis?.artifacts?.tool_visualizations)
+    ? analysis.artifacts.tool_visualizations
+    : [];
 
   return (
     <section className="notebookPanel studioCanvasPanel">
@@ -373,6 +378,34 @@ function ImageReviewCard({
             </div>
           </article>
         </div>
+        {visualArtifacts.length ? (
+          <div className="resultSectionSplit">
+            {visualArtifacts.map((artifact: any, index: number) => {
+              const path = String(artifact?.path ?? "");
+              const title = String(artifact?.title ?? `Tool result ${index + 1}`);
+              const src = path
+                ? `${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(path)}`
+                : "";
+              return (
+                <article className="miniCard" key={`${path}-${index}`}>
+                  <h3>{title}</h3>
+                  {src ? (
+                    <div style={{ textAlign: "center", padding: "0.5rem 0" }}>
+                      <img
+                        src={src}
+                        alt={title}
+                        style={{ maxWidth: "100%", maxHeight: "480px", borderRadius: "6px", border: "1px solid var(--border-color, #ddd)" }}
+                      />
+                    </div>
+                  ) : (
+                    <p className="emptyState">No image artifact path is available.</p>
+                  )}
+                  {artifact?.tool_alias ? <p className="resultNote">{String(artifact.tool_alias)}</p> : null}
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
         <WarningListCard
           warnings={Array.isArray(analysis?.warnings) ? analysis.warnings : []}
           emptyLabel="No image warnings."
@@ -936,7 +969,7 @@ export function buildCustomStudioRendererRegistry({
       ) : null,
     image_review: () =>
       imageAnalysis ? (
-        <ImageReviewCard analysis={imageAnalysis} components={components} />
+        <ImageReviewCard analysis={imageAnalysis} apiBase={apiBase} components={components} />
       ) : null,
     nifti_review: () =>
       niftiAnalysis ? (
