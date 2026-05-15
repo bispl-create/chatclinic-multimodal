@@ -6,6 +6,23 @@
   "approval_required": true,
   "entrypoint": "",
   "description": "CRITICAL: MUST USE THIS TOOL when the user explicitly mentions 'lcr_mpi_tool', 'GAN', 'I2SB', 'RDDM', or asks for 'image restoration', '\uc601\uc0c1 \ubcf5\uc6d0' of their uploaded medical images.",
+  "aliases": ["lcr_mpi", "mpi"],
+  "source_types": ["image"],
+  "routing": {
+    "trigger_keywords": ["lcr_mpi", "lcr-mpi", "mpi"],
+    "result_slot": "restoration_result"
+  },
+  "help": {
+    "summary": "Medical image restoration with GAN, I2SB, or RDDM.",
+    "modes": [
+      {"name": "gan", "description": "Run the GAN restoration model."},
+      {"name": "i2sb", "description": "Run the I2SB restoration model with matching condition input when available."},
+      {"name": "rddm", "description": "Run the RDDM restoration model."}
+    ],
+    "options": [],
+    "examples": ["@lcr_mpi gan", "@lcr_mpi i2sb", "@lcr_mpi rddm"],
+    "notes": ["Runs on the active uploaded medical image."]
+  },
   "parameters": {
     "type": "object",
     "properties": {

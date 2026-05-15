@@ -18,7 +18,10 @@ def get_user_text(data):
     text = ""
     if isinstance(data, dict):
         for k, v in data.items():
-            if k.lower() in ['question', 'prompt', 'text', 'message', 'content', 'user_input', 'query']:
+            if k.lower() in [
+                'question', 'prompt', 'text', 'message', 'content', 'user_input',
+                'query', 'model', 'model_type', 'remainder'
+            ]:
                 if isinstance(v, str):
                     text += v + " "
             text += get_user_text(v)
@@ -44,17 +47,37 @@ def extract_png_paths(data):
             paths.append(data)
     return list(set(paths))
 
-def get_b64_img(stdout_txt, model_dir):
+def stage_image_file(src_path, dest_dir, dest_name):
+    base_name, ext = os.path.splitext(dest_name)
+    dest_name = f"{base_name}.png" if ext.lower() != ".png" else dest_name
+    dest_path = os.path.join(dest_dir, dest_name)
+
+    if os.path.splitext(src_path)[1].lower() == ".png":
+        shutil.copy2(src_path, dest_path)
+        return dest_path
+
+    from PIL import Image
+
+    with Image.open(src_path) as img:
+        img.convert("L").save(dest_path)
+    return dest_path
+
+def get_result_artifact(stdout_txt, model_dir):
     try:
         import re
         match = re.search(r"saved (?:in|at|to):?\s*['\"]?(.*?)['\"]?$", stdout_txt, re.MULTILINE|re.IGNORECASE)
-        if match:
-            out_dir = match.group(1).strip()
-            out_dir = os.path.normpath(os.path.join(model_dir, out_dir))
-            return f"\n- **Images Saved At**: `{out_dir}`"
+        if not match:
+            return {"summary_suffix": "", "output_dir": "", "summary_grid_path": ""}
+        out_dir = match.group(1).strip()
+        out_dir = os.path.normpath(os.path.join(model_dir, out_dir))
+        summary_grid = os.path.join(out_dir, "summary_grid.png")
+        return {
+            "summary_suffix": f"\n- **Images Saved At**: `{out_dir}`",
+            "output_dir": out_dir,
+            "summary_grid_path": summary_grid if os.path.isfile(summary_grid) else "",
+        }
     except Exception:
-        pass
-    return ""
+        return {"summary_suffix": "", "output_dir": "", "summary_grid_path": ""}
 
 def main():
     parser = argparse.ArgumentParser(description="ChatClinic LCR-MPI Tool Plugin")
@@ -109,12 +132,12 @@ def main():
             # Nomenclature rule: map condition file names back to input equivalents so I2SB finds them
             if '_cond' in fname.lower():
                 new_fname = fname.lower().replace('_cond', '')
-                shutil.copy2(path, os.path.join(staging_cond, new_fname))
+                stage_image_file(path, staging_cond, new_fname)
             elif 'cond_' in fname.lower():
                 new_fname = fname.lower().replace('cond_', '')
-                shutil.copy2(path, os.path.join(staging_cond, new_fname))
+                stage_image_file(path, staging_cond, new_fname)
             else:
-                shutil.copy2(path, os.path.join(staging_input, fname))
+                stage_image_file(path, staging_input, fname)
 
     results = {}
     success_count = 0
@@ -155,11 +178,13 @@ def main():
             
             if completed.returncode == 0:
                 success_count += 1
-                img_md = get_b64_img(completed.stdout, model_dir)
+                artifact = get_result_artifact(completed.stdout, model_dir)
                 results[model_name] = {
                     "success": True,
                     "message": "Success",
-                    "image": img_md
+                    "image": artifact["summary_suffix"],
+                    "output_dir": artifact["output_dir"],
+                    "summary_grid_path": artifact["summary_grid_path"]
                 }
             else:
                 results[model_name] = {
@@ -177,12 +202,19 @@ def main():
                 "message": str(e)
             }
 
+    summary_grid_paths = [
+        res.get("summary_grid_path", "")
+        for res in results.values()
+        if res.get("summary_grid_path")
+    ]
     output_data = {
         "success_count": success_count,
         "total": len(models_to_run),
         "summary": f"Inference completed! Successfully executed {success_count} models out of {len(models_to_run)}." + "".join([res.get("image", "") for res in results.values() if "image" in res]),
         "artifacts": {
-            "inference_results": results
+            "inference_results": results,
+            "summary_grid_paths": summary_grid_paths,
+            "summary_grid_path": summary_grid_paths[-1] if summary_grid_paths else ""
         },
         "status": "success" if success_count == len(models_to_run) else "partial_failure" if success_count > 0 else "failure",
         "provenance": {
