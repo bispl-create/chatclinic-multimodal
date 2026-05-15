@@ -17,7 +17,7 @@
     "priority": 80
   },
   "routing": {
-    "trigger_keywords": ["seg_pancreas", "seg-pancreas", "pancreas", "pancreas tumor", "pancreatic", "abdominal ct", "dints"],
+    "trigger_keywords": ["seg_pancreas", "seg-pancreas"],
     "result_slot": "segmentation_result"
   },
   "help": {

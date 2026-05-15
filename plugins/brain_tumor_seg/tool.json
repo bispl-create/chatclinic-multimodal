@@ -17,7 +17,7 @@
     "priority": 80
   },
   "routing": {
-    "trigger_keywords": ["seg_brain", "seg-brain", "brain tumor", "brats", "tumor segmentation", "brain mri", "enhancing tumor", "whole tumor", "segresnet"],
+    "trigger_keywords": ["seg_brain", "seg-brain"],
     "result_slot": "segmentation_result"
   },
   "help": {

@@ -12,6 +12,8 @@ from omegaconf import OmegaConf
 from .infer import run_inference
 
 _THIS_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _THIS_DIR.parents[1]
+_CHECKPOINT_DIR = _REPO_ROOT / "ckpt_and_file" / "lung_seg_tool"
 _PLUGIN_NAME = "multi_organ_seg"
 _TOOL_VERSION = "0.1.0"
 
@@ -24,7 +26,8 @@ def _local_paths() -> Dict[str, str]:
         "nnunet_raw": str(_THIS_DIR / "dataset" / "nnunet_raw"),
         "nnunet_preprocessed": str(_THIS_DIR / "dataset" / "nnunet_preprocessed"),
         "nnunet_results": str(_THIS_DIR / "weights" / "nnunet"),
-        "sam_checkpoint": str(_THIS_DIR / "weights" / "sam" / "sam_vit_h_4b8939.pth"),
+        "sam_checkpoint": str(_CHECKPOINT_DIR / "sam_vit_h_4b8939.pth"),
+        "model_checkpoint_path": str(_CHECKPOINT_DIR / "multi_organ_seg.pth"),
     }
 
 
@@ -60,6 +63,7 @@ def _build_cfg(payload: Dict[str, Any], input_path: str):
     )
     # nnUNet tool reads the input path from cfg.tool.input_image
     cfg.tool.input_image = input_path
+    cfg.tool.checkpoint_name = cfg.paths.model_checkpoint_path
 
     for extra in payload.get("overrides") or []:
         key, _, val = str(extra).partition("=")

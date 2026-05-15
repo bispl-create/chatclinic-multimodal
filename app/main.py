@@ -159,7 +159,11 @@ PLUGINS_DIR = ROOT_DIR / "plugins"
 SKILL_MD_PATH = ROOT_DIR / "skills" / "chatgenome-orchestrator" / "SKILL.md"
 PLUGIN_VISUAL_OUTPUT_DIRS = [
     PLUGINS_DIR / "lcr_mpi_tool" / "outputs",
+    PLUGINS_DIR / "brain_tumor_seg" / "results",
     PLUGINS_DIR / "lung_seg" / "results",
+    PLUGINS_DIR / "multi_organ_seg" / "results",
+    PLUGINS_DIR / "pancreas_tumor_seg" / "results",
+    PLUGINS_DIR / "spleen_seg" / "results",
 ]
 
 

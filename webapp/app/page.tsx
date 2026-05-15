@@ -2144,7 +2144,7 @@ export default function Page() {
   }
 
   function isVisualArtifactPath(value: unknown): value is string {
-    return typeof value === "string" && /\.(png|jpe?g|webp|gif)$/i.test(value.trim());
+    return typeof value === "string" && /\.(png|jpe?g|webp|gif|nii|nii\.gz)$/i.test(value.trim());
   }
 
   function collectImageToolVisualArtifacts(alias: string, resultData: any) {
@@ -2698,7 +2698,9 @@ export default function Page() {
     // Forwards the active source path to the backend's generic tool runner and
     // surfaces the tool's summary as an assistant message.
     if (
-      (preAnalysisSource?.source_type === "text" || preAnalysisSource?.source_type === "image") &&
+      (preAnalysisSource?.source_type === "text" ||
+        preAnalysisSource?.source_type === "image" ||
+        preAnalysisSource?.source_type === "nifti") &&
       preAnalysisSource.source_path
     ) {
       const toolPayload: Record<string, unknown> = {
@@ -2726,6 +2728,11 @@ export default function Page() {
         toolPayload.img_path = preAnalysisSource.source_path;
       }
 
+      if (preAnalysisSource.source_type === "nifti") {
+        toolPayload.nifti_path = preAnalysisSource.source_path;
+        toolPayload.source_nifti_path = preAnalysisSource.source_path;
+      }
+
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/v1/tools/${alias}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2743,7 +2750,7 @@ export default function Page() {
         resultData.summary ??
         JSON.stringify(resultData).slice(0, 500);
       const visualArtifacts =
-        preAnalysisSource.source_type === "image"
+        preAnalysisSource.source_type === "image" || preAnalysisSource.source_type === "nifti"
           ? collectImageToolVisualArtifacts(alias, resultData)
           : [];
 
@@ -2754,10 +2761,8 @@ export default function Page() {
       }
 
       if (visualArtifacts.length) {
-        setImageAnalysis((current) => {
-          if (!current) {
-            return current;
-          }
+        const mergeToolVisuals = (current: any) => {
+          if (!current) return current;
           const existingVisuals = Array.isArray(current.artifacts?.tool_visualizations)
             ? current.artifacts.tool_visualizations
             : [];
@@ -2778,12 +2783,22 @@ export default function Page() {
             },
             used_tools: Array.from(new Set([...(current.used_tools ?? []), String(toolResult.tool_name ?? alias)])),
           };
-        });
-        activateStudioFromPayload(
-          { requested_view: "image_review", studio: { renderer: "image_review" } },
-          "image_review",
-          "image",
-        );
+        };
+        if (preAnalysisSource.source_type === "image") {
+          setImageAnalysis(mergeToolVisuals);
+          activateStudioFromPayload(
+            { requested_view: "image_review", studio: { renderer: "image_review" } },
+            "image_review",
+            "image",
+          );
+        } else if (preAnalysisSource.source_type === "nifti") {
+          setNiftiAnalysis(mergeToolVisuals);
+          activateStudioFromPayload(
+            { requested_view: "nifti_review", studio: { renderer: "nifti_review" } },
+            "nifti_review",
+            "nifti",
+          );
+        }
       }
 
       addMessage({

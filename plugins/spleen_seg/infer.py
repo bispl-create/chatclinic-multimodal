@@ -106,7 +106,7 @@ def run_inference(cfg: DictConfig) -> dict:
             "The bundle may be corrupted -- re-run setup_bundles.py."
         )
 
-    weights_path = os.path.join(bundle_root, "models", "spleen_seg.pt")
+    weights_path = cfg.paths.get("model_weights_path") or os.path.join(bundle_root, "models", "spleen_seg.pt")
     if not os.path.isfile(weights_path):
         raise FileNotFoundError(
             f"Model weights not found: {weights_path}. "

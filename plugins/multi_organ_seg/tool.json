@@ -17,7 +17,7 @@
     "priority": 80
   },
   "routing": {
-    "trigger_keywords": ["seg_organ", "seg-organ", "amos", "multi-organ", "nnunet", "masksam", "abdominal ct", "organ segmentation"],
+    "trigger_keywords": ["seg_organ", "seg-organ"],
     "result_slot": "segmentation_result"
   },
   "help": {

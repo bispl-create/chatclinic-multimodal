@@ -12,6 +12,8 @@ from omegaconf import OmegaConf
 from .infer import run_inference
 
 _THIS_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _THIS_DIR.parents[1]
+_CHECKPOINT_DIR = _REPO_ROOT / "ckpt_and_file" / "lung_seg_tool"
 _PLUGIN_NAME = "pancreas_tumor_seg"
 _TOOL_VERSION = "0.1.0"
 
@@ -23,6 +25,8 @@ def _local_paths() -> Dict[str, str]:
         "dataset_dir": str(_THIS_DIR / "dataset"),
         "bundle_dir": str(_THIS_DIR / "weights"),
         "msd_data_dir": str(_THIS_DIR / "dataset"),
+        "model_weights_path": str(_CHECKPOINT_DIR / "pancreas_tumor_seg.pt"),
+        "search_code_path": str(_CHECKPOINT_DIR / "search_code_18590.pt"),
     }
 
 

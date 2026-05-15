@@ -428,6 +428,9 @@ function NiftiReviewCard({
   const shapeStr = analysis?.shape?.join(" × ") ?? "n/a";
   const voxelStr = analysis?.voxel_dims?.slice(0, 3).join(" × ") ?? "n/a";
   const fovStr = analysis?.fov_mm?.map((v: number) => v.toFixed(1)).join(" × ") ?? "n/a";
+  const visualArtifacts = Array.isArray(analysis?.artifacts?.tool_visualizations)
+    ? analysis.artifacts.tool_visualizations
+    : [];
   const niftiFileUrl = analysis?.source_nifti_path
     ? `${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(analysis.source_nifti_path)}`
     : null;
@@ -465,6 +468,24 @@ function NiftiReviewCard({
               />
             </div>
           </article>
+        ) : null}
+        {visualArtifacts.length ? (
+          <div className="resultSectionSplit">
+            {visualArtifacts.map((artifact: any, index: number) => {
+              const path = String(artifact?.path ?? "");
+              const title = String(artifact?.title ?? `Tool result ${index + 1}`);
+              const src = path
+                ? `${apiBase.replace(/\/$/, "")}/api/v1/files?path=${encodeURIComponent(path)}`
+                : "";
+              return (
+                <article className="miniCard" key={`${path}-${index}`}>
+                  <h3>{title}</h3>
+                  {src ? <NiivueViewer niftiUrl={src} /> : <p className="emptyState">No NIfTI artifact path is available.</p>}
+                  {artifact?.tool_alias ? <p className="resultNote">{String(artifact.tool_alias)}</p> : null}
+                </article>
+              );
+            })}
+          </div>
         ) : null}
         <article className="miniCard" style={{ maxWidth: "100%", overflow: "hidden" }}>
           <h3>Metadata</h3>

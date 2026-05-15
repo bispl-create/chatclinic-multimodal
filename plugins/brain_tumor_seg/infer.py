@@ -130,9 +130,9 @@ def _find_label(labels_dir: str, subject_id: str) -> str:
     return ""
 
 
-def _load_weights(model: torch.nn.Module, bundle_dir: str, bundle_name: str) -> None:
+def _load_weights(model: torch.nn.Module, bundle_dir: str, bundle_name: str, weights_path: str | None = None) -> None:
     """Load pretrained weights from the downloaded bundle."""
-    weights_path = os.path.join(bundle_dir, bundle_name, "models", "brain_tumor_seg.pt")
+    weights_path = weights_path or os.path.join(bundle_dir, bundle_name, "models", "brain_tumor_seg.pt")
     if not os.path.isfile(weights_path):
         raise FileNotFoundError(
             f"Model weights not found: {weights_path}\n"
@@ -183,7 +183,7 @@ def run_inference(cfg: DictConfig) -> dict:
     # ------------------------------------------------------------------
     # 2. Load pretrained weights
     # ------------------------------------------------------------------
-    _load_weights(model, cfg.paths.bundle_dir, cfg.tool.bundle_name)
+    _load_weights(model, cfg.paths.bundle_dir, cfg.tool.bundle_name, cfg.paths.get("model_weights_path"))
     model = model.to(device)
     model.eval()
 

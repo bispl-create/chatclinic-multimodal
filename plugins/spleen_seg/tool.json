@@ -17,7 +17,7 @@
     "priority": 80
   },
   "routing": {
-    "trigger_keywords": ["seg_spleen", "seg-spleen", "spleen", "spleen segmentation", "abdominal ct", "unet"],
+    "trigger_keywords": ["seg_spleen", "seg-spleen"],
     "result_slot": "segmentation_result"
   },
   "help": {

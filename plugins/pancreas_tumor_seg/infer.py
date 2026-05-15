@@ -123,7 +123,7 @@ def run_inference(cfg: DictConfig) -> dict:
             "The bundle may be corrupted — re-run setup_bundles.py."
         )
 
-    weights_path = os.path.join(bundle_root, "models", "pancreas_tumor_seg.pt")
+    weights_path = cfg.paths.get("model_weights_path") or os.path.join(bundle_root, "models", "pancreas_tumor_seg.pt")
     if not os.path.isfile(weights_path):
         raise FileNotFoundError(
             f"Model weights not found: {weights_path}. "
@@ -154,6 +154,12 @@ def run_inference(cfg: DictConfig) -> dict:
         config_text = f.read()
     config_text = config_text.replace("torch.device('cuda:0')", f"torch.device('{cfg.device_name}')")
     config_text = config_text.replace("torch.device('cuda')", f"torch.device('{cfg.device_name}')")
+    search_code_path = cfg.paths.get("search_code_path")
+    if search_code_path:
+        config_text = config_text.replace(
+            "arch_ckpt_path: \"$@bundle_root + '/models/search_code_18590.pt'\"",
+            f"arch_ckpt_path: {search_code_path!r}",
+        )
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
         tmp.write(config_text)
